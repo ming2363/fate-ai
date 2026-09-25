@@ -118,7 +118,7 @@ function LoadingSection({ marker, title, kind }: { readonly marker: string; read
 
 function LoadingSummary() {
   return <section className="persona-summary persona-summary-placeholder" aria-label="中式人格正在准备" aria-busy="true">
-    <div><p className="kicker">{SITE_NAME} / 你的中式人格</p><div className="placeholder-lines" aria-hidden="true"><span /><span /><span /></div></div>
+    <div><p className="kicker">中式人格 · 中式MBTI</p><div className="placeholder-lines" aria-hidden="true"><span /><span /><span /></div></div>
     <p className="sentence">人格信息准备中</p>
   </section>;
 }
@@ -126,7 +126,7 @@ function LoadingSummary() {
 function LoadingPortrait({ status, onRetry }: { readonly status: string; readonly onRetry?: () => void }) {
   return <section className="persona-placeholder" aria-label="国风人格卡" aria-busy={!onRetry && status !== "暂无可用人物卡"}>
     <span className="persona-placeholder-mark" aria-hidden="true">命</span>
-    <div><p className="kicker">{SITE_NAME} / 中式人格卡</p><strong>{status}</strong><p>完成后将在这里呈现</p>{onRetry ? <button type="button" className="quiet" onClick={onRetry}>重试绘制人格卡</button> : null}</div>
+    <div><p className="kicker">中式MBTI人格卡</p><strong>{status}</strong><p>完成后将在这里呈现</p>{onRetry ? <button type="button" className="quiet" onClick={onRetry}>重试绘制人格卡</button> : null}</div>
   </section>;
 }
 
@@ -151,6 +151,8 @@ export function FateApp() {
   const [showForm, setShowForm] = useState(true);
   const [portrait, setPortrait] = useState<string | null>(null);
   const [portraitStatus, setPortraitStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [cardPreview, setCardPreview] = useState<string | null>(null);
+  const [cardExporting, setCardExporting] = useState(false);
   const seq = useRef(0);
   const requestIdRef = useRef("");
   const seenSeq = useRef(new Set<number>());
@@ -175,6 +177,13 @@ export function FateApp() {
     if (!showForm) window.scrollTo(0, 0);
   }, [showForm]);
 
+  useEffect(() => {
+    if (!cardPreview) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setCardPreview(null); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [cardPreview]);
+
   function setLivePhase(next: Phase) {
     phaseRef.current = next;
     setPhase(next);
@@ -182,6 +191,7 @@ export function FateApp() {
   }
 
   function editBirth() {
+    setCardPreview(null);
     seq.current += 1;
     abortRef.current?.abort();
     portraitAbortRef.current?.abort();
@@ -506,16 +516,22 @@ export function FateApp() {
 
   async function saveCard() {
     const node = document.getElementById("persona-card");
-    if (!node) return;
+    if (!node || cardExporting) return;
+    setCardExporting(true);
     try {
       const { toPng } = await import("html-to-image");
       const url = await toPng(node, { pixelRatio: 2, cacheBust: true, style: { margin: "0" } });
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "zhiming-card.png";
-      link.click();
+      if (/MicroMessenger/i.test(navigator.userAgent)) setCardPreview(url);
+      else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "zhiming-card.png";
+        link.click();
+      }
     } catch (error) {
       if (error instanceof Error) setMessage("人格卡导出失败，请改用系统截图。");
+    } finally {
+      setCardExporting(false);
     }
   }
 
@@ -561,7 +577,7 @@ export function FateApp() {
         </div>
       ) : (
         <div className="result-intro">
-          <div><p className="eyebrow"><span className="eyebrow-line" /> 你的命盘</p><h1>有迹可循，仍由你书写。</h1></div>
+          <div><p className="eyebrow"><span className="eyebrow-line" /> 你的命盘</p><h1>{chart?.persona.title ? `${chart.persona.title}，读懂你的节奏。` : "你的命盘，正在展开。"}</h1></div>
           <button type="button" className="outline-button" onClick={editBirth}>修改出生信息 <span aria-hidden="true">↗</span></button>
         </div>
       )}
@@ -585,7 +601,7 @@ export function FateApp() {
       {phase === "done" && thinking ? (
         <button type="button" className="text-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起思考过程" : "查看本次思考片段"}</button>
       ) : null}
-      {expanded && phase === "done" ? <pre className="think" aria-hidden="true">{thinking}</pre> : null}
+      {expanded && phase === "done" && thinking ? <pre className="think" aria-hidden="true">{thinking}</pre> : null}
       {message ? <p className="error" role="alert">{message}</p> : null}
       {!showForm && chart && chart.persona.status === "determined" && showIdentity ? <PersonaSummary card={cardOf(chart, sentence)} /> : !showForm && !showIdentity && !finalPhase ? <LoadingSummary /> : null}
       {!showForm && chart ? (
@@ -682,7 +698,7 @@ export function FateApp() {
             : <LoadingPortrait status={chart.persona.status !== "determined" && finalPhase ? "暂无可用人物卡" : portraitStatus === "failed" ? "人物卡暂未生成" : finalPhase ? "正在绘制人物卡" : "人物卡将在解读完成后呈现"} onRetry={portraitStatus === "failed" && finalPhase ? () => void generatePortrait(chart) : undefined} />}
           <div className="actions">
             {identityReady || fortuneReady ? <button type="button" className="quiet" onClick={() => { const missing: ReadingTaskId[] = []; if (identityAvailable && !identityReady) missing.push("identity"); if (fortuneAvailable && !fortuneReady) missing.push("fortune"); void navigator.clipboard.writeText(copyReport(chart, reading, annualYear ?? chart.annuals.currentYear, missing)).catch(() => setMessage("复制失败，请检查浏览器剪贴板权限。")); }}>复制解读</button> : null}
-            {showPersonaCard ? <button type="button" className="quiet" onClick={() => void saveCard()}>保存人格卡</button> : null}
+            {showPersonaCard ? <button type="button" className="quiet" disabled={cardExporting} onClick={() => void saveCard()}>{cardExporting ? "正在准备图片…" : "保存人格卡"}</button> : null}
             {taskErrors.identity ? <button type="button" className="quiet" onClick={() => void retryTask("identity")}>重试人格与星座解读</button> : null}
             {taskErrors.fortune ? <button type="button" className="quiet" onClick={() => void retryTask("fortune")}>重试大运与流年解读</button> : null}
             {phase === "failed" ? <button type="button" className="quiet" onClick={() => void submit()}>重试解读</button> : null}
@@ -697,6 +713,13 @@ export function FateApp() {
         <LoadingSection marker="年" title="年度流年" kind="annual" />
         <LoadingSection marker="据" title="排盘依据" kind="basis" />
         <LoadingPortrait status="正在准备人物卡" />
+      </div> : null}
+      {cardPreview ? <div className="card-preview" role="dialog" aria-modal="true" aria-label="保存人格卡图片">
+        <button type="button" className="card-preview-backdrop" aria-label="关闭图片预览" onClick={() => setCardPreview(null)} />
+        <div className="card-preview-content">
+          <div className="card-preview-head"><p>长按图片，保存到相册</p><button type="button" className="card-preview-close" aria-label="关闭图片预览" onClick={() => setCardPreview(null)}>×</button></div>
+          <img src={cardPreview} alt="已生成的中式MBTI人格卡，可长按保存" />
+        </div>
       </div> : null}
     </main>
   );

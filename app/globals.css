@@ -210,6 +210,12 @@ textarea { min-height: 86px; resize: vertical; }
 .zodiac-profile > div { min-width: 0; padding: 18px 0 20px; border-bottom: 1px solid var(--line); }
 .zodiac-profile h3 { margin: 0 0 6px; color: var(--green); font: 600 14px/1.5 var(--sans); }
 .reading .zodiac-profile p { margin: 0; font-size: 15px; line-height: 1.8; }
+.zodiac-scenarios { margin: 24px 0 10px; }
+.zodiac-scenarios h3 { margin: 0 0 13px; color: var(--green); font: 22px/1.5 var(--serif); }
+.zodiac-scenarios > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.zodiac-scenarios article { min-width: 0; padding: 17px 18px 19px; border-top: 2px solid var(--green); background: #eee8dc; }
+.zodiac-scenarios h4 { margin: 0; color: var(--seal); font: 600 13px/1.5 var(--sans); }
+.reading .zodiac-scenarios p { margin: 9px 0 0; font-size: 14px; line-height: 1.8; }
 .reading .zodiac-method-title { margin-top: 23px; color: var(--green); font-weight: 600; }
 .zodiac-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 22px; margin: 22px 0 18px; padding: 20px 23px; background: #eae4d8; }
 .zodiac-evidence dt { margin-bottom: 9px; color: var(--seal); font-size: 12px; }
@@ -260,6 +266,13 @@ details summary { min-height: 42px; color: var(--green); font-size: 14px; }
 .result-stack > .actions { grid-column: 1 / -1; padding-top: 23px; border-top: 1px solid var(--line); }
 .quiet, .text-button { min-height: 44px; padding: 8px 15px; border: 1px solid var(--line); background: transparent; color: var(--green); font-size: 13px; }
 .quiet:hover, .text-button:hover { border-color: var(--green); background: #ece7dd; }
+.card-preview { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 14px; }
+.card-preview-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: #17241fe8; }
+.card-preview-content { position: relative; display: flex; flex-direction: column; max-width: min(100%, 520px); max-height: calc(100dvh - 28px); color: #fffdf8; }
+.card-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; }
+.card-preview-head p { margin: 0; font-size: 14px; }
+.card-preview-close { flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: inherit; font: 31px/1 var(--sans); }
+.card-preview-content img { display: block; max-width: 100%; max-height: calc(100dvh - 82px); object-fit: contain; }
 .think { margin-top: 19px; padding: 24px 29px; border-left: 3px solid var(--seal); background: #eae4d8; }
 .think-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .think-head strong { font: 21px/1.4 var(--serif); }
@@ -345,6 +358,7 @@ details summary { min-height: 42px; color: var(--green); font-size: 14px; }
   .reading .luck-pillar, .reading .luck-theme { font-size: 25px; }
   .zodiac-profile { grid-template-columns: 1fr; gap: 0; }
   .zodiac-profile > div { padding: 15px 0; }
+  .zodiac-scenarios > div { grid-template-columns: 1fr; }
   .zodiac-evidence { gap: 13px; padding: 17px; }
   .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .tabs button { padding-inline: 4px; }

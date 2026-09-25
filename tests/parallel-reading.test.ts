@@ -15,7 +15,7 @@ const report: Reading = {
     const prefix = `annual.${annual.year}`;
     const relation = facts.factCatalog.find((item) => item.id.startsWith(prefix) && item.id.includes(".relation."))?.id ?? `${prefix}.ten_gods`;
     return { year: annual.year, status: "generated", summary: p(120, `${prefix}.ten_gods`, relation), outlooks: [p(50, `${prefix}.ten_gods`), p(50, relation)], career: p(100, `${prefix}.ten_gods`), relationships: p(100, relation), finance: p(100, `${prefix}.ten_gods`), actions: [p(40, `${prefix}.ten_gods`), p(40, relation)], segments: annual.segments.map((segment, index) => ({ periodId: segment.periodId, summary: p(80, `${prefix}.segment.${index + 1}`) })) };
-  }), zodiacNote: p(40, "zodiac.sign"),
+  }), zodiacNote: { text: "工作学习：这周可能接到一项需要查资料的新任务，先确认交付边界，再选一件值得深入的事。\n人际关系：朋友可能邀你临时聚会，提前说清时间安排，既保留见面机会也不打乱原定计划。\n日常生活：周末可能想试一条新路线或新活动，先核对交通与预算，给变化留一点余地。", basisRefs: ["zodiac.sign"] },
 };
 const identity = { schemaVersion: "reading-part.v1", personality: report.personality, zodiacNote: report.zodiacNote };
 const fortune = { schemaVersion: "reading-part.v1", overview: report.overview, currentLuck: report.currentLuck, annualReadings: report.annualReadings };

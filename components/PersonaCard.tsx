@@ -1,5 +1,3 @@
-import { SITE_NAME } from "@/lib/shared/versions";
-
 export type CardView = {
   readonly typeLabel: string | null;
   readonly title: string | null;
@@ -18,7 +16,7 @@ export function PersonaSummary({ card }: { readonly card: CardView }) {
   return (
     <section className="persona-summary" data-element={card.element ?? undefined} aria-labelledby="persona-summary-title">
       <div>
-        <p className="kicker">{SITE_NAME} / 你的中式人格</p>
+        <p className="kicker">中式人格 · 中式MBTI</p>
         <p className="persona-symbol">命盘意象 · {card.image ?? card.element ?? "待确认"}</p>
         <h2 id="persona-summary-title">{cardTitle(card)}</h2>
         <p className="keywords">{card.keywords.join(" · ")}</p>
@@ -36,7 +34,7 @@ export function PersonaCard({ card, artwork }: { readonly card: CardView; readon
         <img src={artwork} alt={`以${card.image ?? card.element ?? "国风"}为意象的国风人物插画`} />
       </div>
       <div className="persona-copy">
-        <p className="kicker">{SITE_NAME} <span>/ 你的中式人格卡</span></p>
+        <p className="kicker">中式人格 <span>/ 中式MBTI人格卡</span></p>
         <p className="persona-symbol">命盘意象 · {card.image ?? card.element ?? "待确认"}</p>
         <h2>{cardTitle(card)}</h2>
         <p className="keywords">{card.keywords.join(" · ")}</p>

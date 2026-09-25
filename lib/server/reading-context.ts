@@ -59,6 +59,7 @@ export function buildTaskContext(facts: ChartFacts, taskId: ReadingTaskId, focus
     promptVersion: PROMPT_VERSION,
     trusted_context: identity ? {
       rulesVersion: facts.rulesVersion,
+      asOfUtc: facts.asOfUtc,
       identity: facts.persona,
       natalFacts: facts.bazi,
       zodiac: { status: facts.zodiac.status, nearBoundary: facts.zodiac.nearBoundary, sign: facts.zodiac.sign, candidates: facts.zodiac.candidates },

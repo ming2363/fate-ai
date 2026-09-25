@@ -7,6 +7,7 @@ export function ZodiacPanel({ chart, cultureNote }: { readonly chart: ChartFacts
   const { zodiac } = chart;
   const comparison = zodiacComparison(chart);
   const profile = zodiac.status === "determined" && !zodiac.nearBoundary && zodiac.sign ? zodiacProfile(zodiac.sign.id) : null;
+  const scenes = cultureNote?.replace(/\s*(?=(?:人际关系|日常生活)[：:])/g, "\n").split(/\n+/).map((item) => item.trim()).filter(Boolean) ?? [];
   return <section className="reading zodiac-reading">
     <h2><span className="idx">星</span>太阳星座</h2>
     <div className="zodiac-result"><span>你的太阳星座</span><strong>{zodiac.sign?.name ?? "交界待确认"}</strong><span>{zodiac.nearBoundary ? "出生时刻靠近交界" : "按出生时间与地点核算"}</span></div>
@@ -16,7 +17,12 @@ export function ZodiacPanel({ chart, cultureNote }: { readonly chart: ChartFacts
       <div><h3>相处方式</h3><p>{profile.relationships}</p></div>
       <div><h3>留意与成长</h3><p>{profile.growth}</p></div>
     </div> : null}
-    {cultureNote ? <p className="zodiac-culture"><strong>星座补充　</strong><GlossaryText text={cultureNote} /></p> : null}
+    {scenes.length ? <div className="zodiac-scenarios"><h3>未来一周，可以留意</h3><div>{scenes.map((scene, index) => {
+      const separator = scene.search(/[：:]/);
+      const label = separator > 0 && separator < 8 ? scene.slice(0, separator) : `观察 ${index + 1}`;
+      const detail = separator > 0 && separator < 8 ? scene.slice(separator + 1).trim() : scene;
+      return <article key={`${label}-${index}`}><h4>{label}</h4><p><GlossaryText text={detail} /></p></article>;
+    })}</div></div> : null}
     <p className="zodiac-method-title">如何确定这个星座</p>
     <p>星座在具体时刻交接，同一天出生的人也可能属于不同星座。</p>
     <dl className="zodiac-evidence">

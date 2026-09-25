@@ -190,9 +190,11 @@ export function validateReading(payload: unknown, facts: ChartFacts): { readonly
   if (facts.allowedTopics.zodiac) {
     if (!reading.zodiacNote) errors.push("zodiacNote 必须填写");
     else {
-      const length = lengthError("zodiacNote", reading.zodiacNote.text, 20, 60);
+      const note = reading.zodiacNote;
+      const length = lengthError("zodiacNote", note.text, 100, 240);
       if (length) errors.push(length);
-      const refError = refsError("zodiacNote", reading.zodiacNote, ids, /^(zodiac\.|limit\.)/);
+      if (!["工作学习：", "人际关系：", "日常生活："].every((label) => note.text.includes(label))) errors.push("zodiacNote 须分别写工作学习、人际关系、日常生活三个情境");
+      const refError = refsError("zodiacNote", note, ids, /^(zodiac\.|limit\.)/);
       if (refError) errors.push(refError);
     }
   } else if (reading.zodiacNote) {
