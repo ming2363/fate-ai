@@ -1,6 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 
 import type { BirthInput, ReadingRequest } from "@/lib/shared/schemas";
+import type { Reading } from "@/lib/shared/chart-types";
 import { readingRequestSchema } from "@/lib/shared/schemas";
 import { encodeSse } from "@/lib/shared/sse";
 import { AS_OF_MAX_SKEW_MS, READING_TIMEOUT_MS } from "@/lib/shared/versions";
@@ -11,6 +12,7 @@ import { requestBodyFingerprint } from "@/lib/server/fingerprint";
 import { assertSameOrigin, beginInflight, clientAddress, consumeRateLimit, endInflight, readOrCreateSession } from "@/lib/server/guard";
 import { errorResponse, jsonResponse, readJson } from "@/lib/server/http";
 import { logEvent } from "@/lib/server/log";
+import { logOperation, saveReading, tryStore } from "@/lib/server/history";
 import { runParallelReading, runReading, type ReadingEmit, type TaskReadingEmit } from "@/lib/server/reading-run";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +83,7 @@ export async function POST(request: Request): Promise<Response> {
     request.signal.addEventListener("abort", onAbort);
     let seq = 0;
     let attempt = 1;
+    let readingPatch: Partial<Reading> = {};
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -127,7 +130,7 @@ export async function POST(request: Request): Promise<Response> {
               if (event.event === "status") write("status", { phase: event.phase });
               if (event.event === "thinking_delta") write("thinking_delta", { text: event.text });
               if (event.event === "retry") write("retry", { message: event.message });
-              if (event.event === "result") write("result", { readingStatus: event.readingStatus, reading: event.reading });
+              if (event.event === "result") { readingPatch = event.reading; write("result", { readingStatus: event.readingStatus, reading: event.reading }); }
               if (event.event === "error") write("error", { readingStatus: "failed", reading: null, code: event.code, message: event.message, retryable: event.retryable });
             },
           }) : await runParallelReading({
@@ -146,11 +149,15 @@ export async function POST(request: Request): Promise<Response> {
               if (event.event === "module_status") write(event.event, { taskId: event.taskId, attempt: event.attempt, phase: event.phase });
               if (event.event === "module_thinking_delta") write(event.event, { taskId: event.taskId, attempt: event.attempt, text: event.text });
               if (event.event === "module_retry") write(event.event, { taskId: event.taskId, attempt: event.attempt, message: event.message });
-              if (event.event === "module_result") write(event.event, { taskId: event.taskId, attempt: event.attempt, part: event.part });
+              if (event.event === "module_result") { readingPatch = { ...readingPatch, ...event.part }; write(event.event, { taskId: event.taskId, attempt: event.attempt, part: event.part }); }
               if (event.event === "module_error") write(event.event, { taskId: event.taskId, attempt: event.attempt, code: event.code, message: event.message, retryable: event.retryable });
             },
           });
-          if (outcome !== "cancelled") write("done", { outcome, protocolVersion: process.env.READING_MODE === "single" ? "reading-stream.v1" : "reading-stream.v2" });
+          if (outcome !== "cancelled") {
+            if (body.historyId) await tryStore(() => saveReading(body.historyId!, session.id, readingPatch, outcome === "success" ? "complete" : outcome === "partial" ? "partial" : "failed", body.focus, body.question));
+            await tryStore(() => logOperation({ request, sessionId: session.id, historyId: body.historyId, event: "reading", outcome, durationMs: Date.now() - started }));
+            write("done", { outcome, protocolVersion: process.env.READING_MODE === "single" ? "reading-stream.v1" : "reading-stream.v2" });
+          }
           logEvent({ requestId: body.requestId, phase: "reading", durationMs: Date.now() - started, rulesVersion: facts.rulesVersion, attempt });
         } catch (error) {
           if (!abort.signal.aborted) {
@@ -158,6 +165,7 @@ export async function POST(request: Request): Promise<Response> {
             write("done", { outcome: "failed" });
           }
           logEvent({ requestId: body.requestId, phase: "reading-error", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" });
+          await tryStore(() => logOperation({ request, sessionId: session.id, historyId: body.historyId, event: "reading", outcome: "failed", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" }));
         } finally {
           clearInterval(heartbeat);
           request.signal.removeEventListener("abort", onAbort);
@@ -180,6 +188,7 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(stream, { headers });
   } catch (error) {
     logEvent({ phase: "reading-rejected", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" });
+    await tryStore(() => logOperation({ request, sessionId: session.id, event: "reading", outcome: "rejected", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" }));
     return withCookie(errorResponse(error), session.cookie);
   }
 }

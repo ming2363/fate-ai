@@ -41,11 +41,12 @@ export const birthInputSchema = z
   })
   .strict();
 
-export const chartRequestSchema = birthInputSchema;
+export const chartRequestSchema = birthInputSchema.extend({ historyId: z.string().uuid().optional() });
 
 export const readingRequestSchema = birthInputSchema
   .extend({
     requestId: z.string().uuid(),
+    historyId: z.string().uuid().optional(),
     focus: z.enum(["general", "career", "relationship", "finance"]),
     question: z.string().max(200),
     asOfUtc: z.string().min(1),

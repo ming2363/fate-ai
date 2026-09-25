@@ -20,6 +20,10 @@ pnpm start
 
 没有密钥时，`/api/chart` 仍可排盘；`/api/reading` 返回 `AI_NOT_CONFIGURED`，页面保留基础卡并提示“AI 解读尚未配置”。
 
+## 历史记录与操作日志
+
+设置 `.env.local` 中的 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE`，再在目标库执行 `db/schema.sql`。系统只写入 `fate_reading_history` 和 `fate_operation_log` 两张表：排盘后创建匿名历史，文字解读与人物画完成后补全；访问、排盘、解读、出图和保存卡片写操作日志。历史记录目前没有页面或读取接口。部署在可信反向代理后设置 `TRUST_PROXY_HEADERS=true`，日志才会采用代理传入的真实访问 IP。数据库写入失败会记录服务端错误，不中断用户解读。
+
 ## 验证
 
 ```bash

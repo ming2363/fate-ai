@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS fate_reading_history (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  session_id CHAR(32) NOT NULL,
+  user_id VARCHAR(64) NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'charted',
+  title VARCHAR(100) NULL,
+  input_json JSON NOT NULL,
+  chart_json JSON NOT NULL,
+  reading_json JSON NULL,
+  image_mime VARCHAR(32) NULL,
+  image_data MEDIUMBLOB NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_fate_history_session (session_id, created_at),
+  KEY idx_fate_history_user (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fate_operation_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_id CHAR(32) NOT NULL,
+  history_id CHAR(36) NULL,
+  event VARCHAR(32) NOT NULL,
+  outcome VARCHAR(16) NOT NULL,
+  ip VARCHAR(45) NULL,
+  duration_ms INT UNSIGNED NULL,
+  error_code VARCHAR(64) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_fate_log_time (created_at),
+  KEY idx_fate_log_ip_time (ip, created_at),
+  KEY idx_fate_log_history (history_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

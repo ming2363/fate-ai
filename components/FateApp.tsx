@@ -20,6 +20,7 @@ import { birthInputSchema, type BirthInput } from "@/lib/shared/schemas";
 import { parseSseBlock } from "@/lib/shared/sse";
 import { createRequestId } from "@/lib/shared/request-id";
 import { appendThinking } from "@/lib/shared/thinking";
+import { blankReading } from "@/lib/shared/blank-reading";
 import { SITE_NAME } from "@/lib/shared/versions";
 import type { FestivalTheme } from "@/lib/shared/festival";
 
@@ -68,17 +69,6 @@ function isChart(value: unknown): value is ChartFacts {
 
 function isReading(value: unknown): value is Reading {
   return Boolean(value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === "reading.v1");
-}
-
-function blankReading(facts: ChartFacts): Reading {
-  return {
-    schemaVersion: "reading.v1",
-    overview: { text: "", basisRefs: [] },
-    personality: { status: "unavailable", summary: null, strengths: [], blindSpots: [], relationshipAdvice: null, cardSentence: null },
-    currentLuck: { status: "unavailable", periodId: null, theme: null, summary: null, opportunity: null, attention: null },
-    annualReadings: facts.reportYears.map((year) => ({ year, status: "unavailable", summary: null, outlooks: [], career: null, relationships: null, finance: null, actions: [], segments: [] })),
-    zodiacNote: null,
-  };
 }
 
 type TaskPhase = "waiting" | "thinking" | "answering" | "validating" | "done" | "failed";
@@ -158,6 +148,7 @@ export function FateApp() {
   const [festival, setFestival] = useState<FestivalTheme | null>(null);
   const seq = useRef(0);
   const requestIdRef = useRef("");
+  const historyIdRef = useRef("");
   const seenSeq = useRef(new Set<number>());
   const abortRef = useRef<AbortController | null>(null);
   const thinkingRef = useRef("");
@@ -168,6 +159,7 @@ export function FateApp() {
   const portraitKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
+    void fetch(`${BASE_PATH}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "page_view" }) }).catch(() => {});
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -214,6 +206,7 @@ export function FateApp() {
   }
 
   function editBirth() {
+    historyIdRef.current = "";
     setCardPreview(null);
     seq.current += 1;
     abortRef.current?.abort();
@@ -251,7 +244,7 @@ export function FateApp() {
       const response = await fetch(`${BASE_PATH}/api/persona-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dayMaster, gender: form.gender, signId }),
+        body: JSON.stringify({ dayMaster, gender: form.gender, signId, historyId: historyIdRef.current }),
         signal: abort.signal,
       });
       if (!response.ok) throw new Error("IMAGE_UNAVAILABLE");
@@ -284,8 +277,13 @@ export function FateApp() {
       return;
     }
     seq.current += 1;
+    historyIdRef.current = createRequestId();
     const localSeq = seq.current;
     abortRef.current?.abort();
+    portraitAbortRef.current?.abort();
+    portraitKeyRef.current = null;
+    setPortrait(null);
+    setPortraitStatus("idle");
     const abort = new AbortController();
     abortRef.current = abort;
     setErrors({});
@@ -309,7 +307,7 @@ export function FateApp() {
       const chartResponse = await fetch(`${BASE_PATH}/api/chart`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, historyId: historyIdRef.current }),
         signal: abort.signal,
       });
       const chartBody = await chartResponse.json() as Record<string, unknown>;
@@ -361,6 +359,7 @@ export function FateApp() {
       body: JSON.stringify({
         ...input,
         requestId,
+        historyId: historyIdRef.current,
         focus: form.focus,
         question: form.question,
         asOfUtc: facts.asOfUtc,
@@ -516,7 +515,7 @@ export function FateApp() {
       let fresh = chart;
       if (Date.now() - Date.parse(chart.asOfUtc) > 4 * 60_000) {
         setLivePhase("charting");
-        const response = await fetch(`${BASE_PATH}/api/chart`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal: abort.signal });
+        const response = await fetch(`${BASE_PATH}/api/chart`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, historyId: historyIdRef.current }), signal: abort.signal });
         const body = await response.json() as unknown;
         if (!response.ok || !isChart(body)) throw new Error("REFRESH_CHART_FAILED");
         fresh = body;
@@ -551,6 +550,7 @@ export function FateApp() {
         link.download = "zhiming-card.png";
         link.click();
       }
+      void fetch(`${BASE_PATH}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "card_save", historyId: historyIdRef.current }) }).catch(() => {});
     } catch (error) {
       if (error instanceof Error) setMessage("人格卡导出失败，请改用系统截图。");
     } finally {

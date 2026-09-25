@@ -37,9 +37,9 @@ export function assertSameOrigin(request: Request): void {
   if (!host || parsed.host !== host) throw new HttpError(403, "FORBIDDEN_ORIGIN", "来源不被接受", false);
 }
 
-export function consumeRateLimit(key: string, now = Date.now()): void {
+export function consumeRateLimit(key: string, now = Date.now(), limit = RATE_LIMIT_COUNT): void {
   const recent = (hits.get(key) ?? []).filter((stamp) => now - stamp < RATE_WINDOW_MS);
-  if (recent.length >= RATE_LIMIT_COUNT) {
+  if (recent.length >= limit) {
     const oldest = recent[0] ?? now;
     const retryAfter = Math.ceil((RATE_WINDOW_MS - (now - oldest)) / 1000);
     throw new HttpError(429, "RATE_LIMITED", "解读请求过于频繁，请稍后再试。", true, { "Retry-After": String(retryAfter) });
