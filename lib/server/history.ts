@@ -7,6 +7,7 @@ import { database } from "@/lib/server/db";
 import { clientAddress } from "@/lib/server/guard";
 import { estimateFlashCost, PRICE_VERSION } from "@/lib/server/model-cost";
 import type { UsageNote } from "@/lib/server/reading-run";
+import type { MbtiType } from "@/lib/shared/mbti";
 
 export async function saveChart(args: {
   id: string; sessionId: string; input: BirthInput; facts: ChartFacts; focus?: Focus; question?: string;
@@ -26,15 +27,16 @@ export async function saveChart(args: {
   }
 }
 
-export async function saveReading(id: string, sessionId: string, patch: Partial<Reading>, status: "complete" | "partial" | "failed", focus: Focus, question: string): Promise<void> {
+export async function saveReading(id: string, sessionId: string, patch: Partial<Reading>, status: "complete" | "partial" | "failed", focus: Focus, question: string, mbti?: MbtiType | null): Promise<void> {
   const db = database();
   const [rows] = await db.execute<RowDataPacket[]>("SELECT reading_json FROM fate_reading_history WHERE id = ? AND session_id = ?", [id, sessionId]);
   const row = rows[0];
   if (!row) return;
   const current = typeof row.reading_json === "string" ? JSON.parse(row.reading_json) as Reading : row.reading_json as Reading;
+  const inputUpdates = mbti === undefined ? "'$.focus', ?, '$.question', ?" : "'$.focus', ?, '$.question', ?, '$.mbti', ?";
   await db.execute(
-    "UPDATE fate_reading_history SET reading_json = ?, status = ?, input_json = JSON_SET(input_json, '$.focus', ?, '$.question', ?) WHERE id = ? AND session_id = ?",
-    [JSON.stringify({ ...current, ...patch }), status, focus, question, id, sessionId],
+    `UPDATE fate_reading_history SET reading_json = ?, status = ?, input_json = JSON_SET(input_json, ${inputUpdates}) WHERE id = ? AND session_id = ?`,
+    [JSON.stringify({ ...current, ...patch }), status, focus, question, ...(mbti === undefined ? [] : [mbti]), id, sessionId],
   );
 }
 

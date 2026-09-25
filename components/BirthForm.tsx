@@ -4,6 +4,7 @@ import { BirthDatePicker } from "@/components/BirthDatePicker";
 import { BirthPlacePicker } from "@/components/BirthPlacePicker";
 import { MANUAL_TIME_ZONES } from "@/lib/shared/cities";
 import { SHICHEN } from "@/lib/shared/shichen";
+import { MBTI_TYPES, type MbtiType } from "@/lib/shared/mbti";
 
 export type FormState = {
   readonly calendar: "solar" | "lunar";
@@ -21,6 +22,7 @@ export type FormState = {
   readonly offsetChoice: string;
   readonly focus: "general" | "career" | "relationship" | "finance";
   readonly question: string;
+  readonly mbti: MbtiType | "";
 };
 
 export const INITIAL_FORM: FormState = {
@@ -39,6 +41,7 @@ export const INITIAL_FORM: FormState = {
   offsetChoice: "",
   focus: "general",
   question: "",
+  mbti: "",
 };
 
 function isFocus(value: string): value is FormState["focus"] {
@@ -147,7 +150,7 @@ export function BirthForm({
         </fieldset>
       ) : null}
       <details className="optional-fields">
-        <summary>有特别想了解的事？ <span>选填</span></summary>
+        <summary>补充 MBTI 或关注的问题 <span>选填</span></summary>
         <div className="field">
           <label htmlFor="focus">关注方向</label>
           <select id="focus" value={form.focus} onChange={(event) => {
@@ -162,6 +165,14 @@ export function BirthForm({
         <div className="field">
           <label htmlFor="question">具体困惑 <span className="hint">最多 200 字</span></label>
           <textarea id="question" maxLength={200} value={form.question} onChange={(event) => onChange({ ...form, question: event.target.value.slice(0, 200) })} />
+        </div>
+        <div className="field">
+          <label htmlFor="mbti">你的 MBTI <span className="hint">选填 · 16 型自测结果</span></label>
+          <select id="mbti" value={form.mbti} onChange={(event) => onChange({ ...form, mbti: event.target.value as MbtiType | "" })}>
+            <option value="">不填写</option>
+            {MBTI_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+          <p className="hint">用于补充自我观察与建议，不参与八字和星座计算。</p>
         </div>
       </details>
       <div className="form-actions">

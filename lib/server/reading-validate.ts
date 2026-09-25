@@ -40,6 +40,7 @@ const readingSchema = z.object({
     segments: z.array(z.object({ periodId: z.string(), summary: paragraphSchema }).strict()),
   }).strict()),
   zodiacNote: paragraphSchema.nullable(),
+  mbtiNote: z.object({ commonGround: z.string().min(20).max(180), difference: z.string().min(20).max(180), practice: z.string().min(20).max(180) }).strict().nullable().optional(),
 }).strict();
 
 const FORBIDDEN = [/克夫/, /克妻/, /命差/, /必赚/, /一定会死/, /必死/, /破产/, /确诊/, /买入/, /卖出/, /幸运指数/, /准确率/, /运势\s*\d/];
@@ -73,6 +74,7 @@ function collectText(reading: Reading): string {
     reading.currentLuck.opportunity,
     reading.currentLuck.attention,
     reading.zodiacNote,
+    ...(reading.mbtiNote ? [{ text: Object.values(reading.mbtiNote).join("\n"), basisRefs: [] }] : []),
     ...reading.personality.strengths,
     ...reading.personality.blindSpots,
     ...reading.annualReadings.flatMap((item) => [item.summary, item.career, item.relationships, item.finance, ...item.outlooks, ...item.actions, ...item.segments.map((segment) => segment.summary)]),
@@ -88,13 +90,15 @@ function analysisRefsError(prefix: string, summary: Paragraph, paragraphs: reado
   return null;
 }
 
-export function validateReading(payload: unknown, facts: ChartFacts): { readonly ok: true; readonly reading: Reading; readonly status: "generated" | "partial" } | { readonly ok: false; readonly errors: readonly string[] } {
+export function validateReading(payload: unknown, facts: ChartFacts, hasMbtiProfile = false): { readonly ok: true; readonly reading: Reading; readonly status: "generated" | "partial" } | { readonly ok: false; readonly errors: readonly string[] } {
   const parsed = readingSchema.safeParse(payload);
   if (!parsed.success) {
     return { ok: false, errors: parsed.error.issues.slice(0, 20).map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`) };
   }
   const reading = parsed.data;
   const errors: string[] = [];
+  if (hasMbtiProfile && !reading.mbtiNote) errors.push("mbtiNote 需要结合 MBTI 与命盘填写");
+  if (!hasMbtiProfile && reading.mbtiNote) errors.push("未提供 MBTI 侧写时 mbtiNote 必须为 null");
   const ids = new Set(facts.factCatalog.map((item) => item.id));
   const overviewError = lengthError("overview.text", reading.overview.text, 1, 120);
   if (overviewError) errors.push(overviewError);
@@ -220,15 +224,15 @@ export function validateReading(payload: unknown, facts: ChartFacts): { readonly
   return { ok: true, reading, status: partial ? "partial" : "generated" };
 }
 
-const identitySchema = readingSchema.pick({ personality: true, zodiacNote: true }).extend({ schemaVersion: z.literal("reading-part.v1") }).strict();
+const identitySchema = readingSchema.pick({ personality: true, zodiacNote: true, mbtiNote: true }).extend({ schemaVersion: z.literal("reading-part.v1") }).strict();
 const fortuneSchema = readingSchema.pick({ overview: true, currentLuck: true, annualReadings: true }).extend({ schemaVersion: z.literal("reading-part.v1") }).strict();
 
-export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: "identity"): { readonly ok: true; readonly part: IdentityReading } | { readonly ok: false; readonly errors: readonly string[] };
-export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: "fortune"): { readonly ok: true; readonly part: FortuneReading } | { readonly ok: false; readonly errors: readonly string[] };
-export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: ReadingTaskId): { readonly ok: true; readonly part: IdentityReading | FortuneReading } | { readonly ok: false; readonly errors: readonly string[] } {
+export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: "identity", hasMbtiProfile?: boolean): { readonly ok: true; readonly part: IdentityReading } | { readonly ok: false; readonly errors: readonly string[] };
+export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: "fortune", hasMbtiProfile?: boolean): { readonly ok: true; readonly part: FortuneReading } | { readonly ok: false; readonly errors: readonly string[] };
+export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId: ReadingTaskId, hasMbtiProfile = false): { readonly ok: true; readonly part: IdentityReading | FortuneReading } | { readonly ok: false; readonly errors: readonly string[] } {
   const parsed = (taskId === "identity" ? identitySchema : fortuneSchema).safeParse(payload);
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.slice(0, 20).map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`) };
-  const emptyIdentity: IdentityReading = { personality: { status: "unavailable", summary: null, strengths: [], blindSpots: [], relationshipAdvice: null, cardSentence: null }, zodiacNote: null };
+  const emptyIdentity: IdentityReading = { personality: { status: "unavailable", summary: null, strengths: [], blindSpots: [], relationshipAdvice: null, cardSentence: null }, zodiacNote: null, mbtiNote: null };
   const emptyFortune: FortuneReading = {
     overview: { text: "已展示可确认的命盘信息。", basisRefs: [facts.factCatalog[0]?.id ?? ""] },
     currentLuck: { status: "unavailable", periodId: null, theme: null, summary: null, opportunity: null, attention: null },
@@ -244,9 +248,9 @@ export function validateTaskReading(payload: unknown, facts: ChartFacts, taskId:
       ? { ...facts.allowedTopics, currentLuck: false, annualYears: [] }
       : { ...facts.allowedTopics, personality: false, zodiac: false },
   };
-  const validated = validateReading(reading, scopedFacts);
+  const validated = validateReading(reading, scopedFacts, taskId === "identity" && hasMbtiProfile);
   if (!validated.ok) return validated;
   return { ok: true, part: taskId === "identity"
-    ? { personality: validated.reading.personality, zodiacNote: validated.reading.zodiacNote }
+    ? { personality: validated.reading.personality, zodiacNote: validated.reading.zodiacNote, mbtiNote: validated.reading.mbtiNote ?? null }
     : { overview: validated.reading.overview, currentLuck: validated.reading.currentLuck, annualReadings: validated.reading.annualReadings } };
 }

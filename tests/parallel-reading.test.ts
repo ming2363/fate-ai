@@ -1,7 +1,8 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { expect, it } from "vitest";
 import { buildChart } from "@/lib/server/chart";
-import { runParallelReading, type TaskReadingEmit } from "@/lib/server/reading-run";
+import { runMbtiProfile, runParallelReading, type TaskReadingEmit } from "@/lib/server/reading-run";
+import { buildTaskContext } from "@/lib/server/reading-context";
 import { validateTaskReading } from "@/lib/server/reading-validate";
 import type { Reading } from "@/lib/shared/chart-types";
 
@@ -19,6 +20,24 @@ const report: Reading = {
 };
 const identity = { schemaVersion: "reading-part.v1", personality: report.personality, zodiacNote: report.zodiacNote };
 const fortune = { schemaVersion: "reading-part.v1", overview: report.overview, currentLuck: report.currentLuck, annualReadings: report.annualReadings };
+
+it("自填 MBTI 先生成侧写，再进入命盘解读；类型不符时拒收", async () => {
+  const profileData = {
+    type: "INFP", overview: "偏好先弄清自己的感受和价值，再决定怎么行动；遇到新任务时可能先找意义。",
+    strengths: "容易关注人和想法之间的联系，也愿意给自己时间把细节慢慢想明白。",
+    blindSpots: "若一直等待完全确定的方向，可能推迟开始；先完成一个小步骤会更容易推进。",
+    communication: "倾向先倾听再表达；讨论分歧时可以先说自己的关注点，再问对方看重什么。",
+    growth: "为重要目标设一个可检查的小节点，做完以后再根据实际反馈修正方向。",
+  } as const;
+  const profile = await runMbtiProfile({ type: "INFP", apiKey: "test-key", signal: new AbortController().signal, fetchImpl: async () => sse(JSON.stringify(profileData)) });
+  expect(profile).toEqual(profileData);
+  expect(buildTaskContext(facts, "identity", "general", "", profile).user_input.mbtiProfile).toEqual(profileData);
+  const withMbti = { ...identity, mbtiNote: { commonGround: "两种视角都提醒你先明确在意的事，再找一个可以落地的起点。", difference: "MBTI 是自己填写的偏好，命盘是传统文化的另一种说法，两者不必完全一致。", practice: "讨论合作时先说目标与边界，再留一小段时间听听对方的想法。" } };
+  expect(validateTaskReading(withMbti, facts, "identity", true).ok).toBe(true);
+  expect(validateTaskReading(identity, facts, "identity", true).ok).toBe(false);
+  const mismatch = await runMbtiProfile({ type: "ISTJ", apiKey: "test-key", signal: new AbortController().signal, fetchImpl: async () => sse(JSON.stringify(profileData)) });
+  expect(mismatch).toBeNull();
+});
 function sse(content: string): Response {
   return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
 }

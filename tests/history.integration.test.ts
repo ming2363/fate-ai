@@ -23,7 +23,7 @@ describe.skipIf(process.env.RUN_MYSQL_TESTS !== "1")("MySQL 历史记录", () =>
     process.env.TRUST_PROXY_HEADERS = "true";
     try {
       await saveChart({ id, sessionId, input, facts });
-      await saveReading(id, sessionId, { personality: { status: "unavailable", summary: null, strengths: [], blindSpots: [], relationshipAdvice: null, cardSentence: null } }, "partial", "career", "测试关注方向");
+      await saveReading(id, sessionId, { personality: { status: "unavailable", summary: null, strengths: [], blindSpots: [], relationshipAdvice: null, cardSentence: null } }, "partial", "career", "测试关注方向", "INFP");
       await saveReading(id, sessionId, { zodiacNote: { text: "星座解读", basisRefs: [] } }, "complete", "career", "测试关注方向");
       await savePortrait(id, sessionId, "data:image/png;base64,dGVzdA==");
       await logOperation({ request: new Request("http://localhost/api/chart", { headers: { "x-forwarded-for": "203.0.113.7" } }), sessionId, historyId: id, event: "chart", outcome: "success" });
@@ -31,6 +31,7 @@ describe.skipIf(process.env.RUN_MYSQL_TESTS !== "1")("MySQL 历史记录", () =>
       const [history] = await db.execute<RowDataPacket[]>("SELECT input_json, chart_json, reading_json, image_mime, image_data, status FROM fate_reading_history WHERE id = ?", [id]);
       const row = history[0];
       expect(row?.input_json.question).toBe("测试关注方向");
+      expect(row?.input_json.mbti).toBe("INFP");
       expect(row?.chart_json.chartFingerprint).toBe(facts.chartFingerprint);
       expect(row?.reading_json.personality.status).toBe("unavailable");
       expect(row?.reading_json.zodiacNote.text).toBe("星座解读");

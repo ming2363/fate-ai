@@ -13,7 +13,7 @@ import { assertSameOrigin, beginInflight, clientAddress, consumeRateLimit, endIn
 import { errorResponse, jsonResponse, readJson } from "@/lib/server/http";
 import { logEvent } from "@/lib/server/log";
 import { logOperation, saveReading, tryStore } from "@/lib/server/history";
-import { runParallelReading, runReading, type ReadingEmit, type TaskReadingEmit, type UsageNote } from "@/lib/server/reading-run";
+import { runMbtiProfile, runParallelReading, runReading, type ReadingEmit, type TaskReadingEmit, type UsageNote } from "@/lib/server/reading-run";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!apiKey) {
       return withCookie(jsonResponse({ code: "AI_NOT_CONFIGURED", message: "AI 解读尚未配置", retryable: false }, 503), session.cookie);
     }
-    const abort = beginInflight(session.id, body.requestId, requestBodyFingerprint(input, body.focus, body.question, body.asOfUtc, requestedTasks));
+    const abort = beginInflight(session.id, body.requestId, requestBodyFingerprint(input, body.focus, body.question, body.asOfUtc, requestedTasks, body.mbti));
     try {
       consumeRateLimit(clientAddress(request));
     } catch (error) {
@@ -106,10 +106,30 @@ export async function POST(request: Request): Promise<Response> {
           seq += 1;
         };
         try {
+          if (body.mbti) {
+            write("mbti_status", { phase: "waiting" });
+          }
+          const mbtiProfile = body.mbti ? await runMbtiProfile({
+            type: body.mbti,
+            apiKey,
+            signal: abort.signal,
+            fetchImpl: fetch,
+            onStatus: (phase) => write("mbti_status", { phase }),
+            onUsage: (usage) => {
+              modelCalls.push({ usage, taskId: "mbti", attempt: 1, at: new Date() });
+              logEvent({ requestId: body.requestId, phase: "model-mbti", modelMs: usage.modelMs, promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, rulesVersion: facts.rulesVersion, attempt: 1 });
+            },
+          }) : null;
+          if (abort.signal.aborted) return;
+          if (body.mbti) {
+            if (mbtiProfile) { readingPatch = { ...readingPatch, mbtiProfile }; write("mbti_profile", { profile: mbtiProfile }); }
+            else write("mbti_error", { message: "MBTI 侧写暂未完成，命盘解读继续进行。" });
+          }
           const shared = {
             facts,
             focus: body.focus,
             question: body.question,
+            mbtiProfile,
             apiKey,
             signal: abort.signal,
             deadlineMs: started + READING_TIMEOUT_MS,
@@ -134,7 +154,7 @@ export async function POST(request: Request): Promise<Response> {
               if (event.event === "status") write("status", { phase: event.phase });
               if (event.event === "thinking_delta") write("thinking_delta", { text: event.text });
               if (event.event === "retry") write("retry", { message: event.message });
-              if (event.event === "result") { readingPatch = event.reading; write("result", { readingStatus: event.readingStatus, reading: event.reading }); }
+              if (event.event === "result") { readingPatch = { ...event.reading, mbtiProfile }; write("result", { readingStatus: event.readingStatus, reading: readingPatch }); }
               if (event.event === "error") write("error", { readingStatus: "failed", reading: null, code: event.code, message: event.message, retryable: event.retryable });
             },
           }) : await runParallelReading({
@@ -161,7 +181,7 @@ export async function POST(request: Request): Promise<Response> {
             },
           });
           if (outcome !== "cancelled") {
-            if (body.historyId) await tryStore(() => saveReading(body.historyId!, session.id, readingPatch, outcome === "success" ? "complete" : outcome === "partial" ? "partial" : "failed", body.focus, body.question));
+            if (body.historyId) await tryStore(() => saveReading(body.historyId!, session.id, readingPatch, outcome === "success" ? "complete" : outcome === "partial" ? "partial" : "failed", body.focus, body.question, body.mbti));
             await tryStore(() => logOperation({ request, sessionId: session.id, historyId: body.historyId, event: "reading", outcome, durationMs: Date.now() - started }));
             write("done", { outcome, protocolVersion: process.env.READING_MODE === "single" ? "reading-stream.v1" : "reading-stream.v2" });
           }

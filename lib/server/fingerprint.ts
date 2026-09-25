@@ -22,6 +22,6 @@ export function chartFingerprint(input: BirthInput, asOfUtc: string): string {
   })).digest("hex");
 }
 
-export function requestBodyFingerprint(input: BirthInput, focus: string, question: string, asOfUtc: string, requestedTasks: readonly string[] = []): string {
-  return createHash("sha256").update(stableStringify({ input, focus, question, asOfUtc, requestedTasks })).digest("hex");
+export function requestBodyFingerprint(input: BirthInput, focus: string, question: string, asOfUtc: string, requestedTasks: readonly string[] = [], mbti: string | null = null): string {
+  return createHash("sha256").update(stableStringify({ input, focus, question, asOfUtc, requestedTasks, mbti })).digest("hex");
 }

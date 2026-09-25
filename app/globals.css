@@ -222,6 +222,21 @@ textarea { min-height: 86px; resize: vertical; }
 @keyframes paper-shimmer { to { background-position: -200% 0; } }
 .reading { min-width: 0; margin: 0; padding: 24px 2px 32px; border-top: 1px solid var(--line); }
 .reading.overview, .reading.personality-reading, .reading.zodiac-reading { grid-column: 1 / -1; }
+.reading.mbti-reading { grid-column: 1 / -1; min-height: 510px; }
+.mbti-reading .mbti-type { margin-left: 5px; color: var(--seal); font: 30px/1.2 var(--serif); }
+.reading .mbti-lead { max-width: 68ch; margin: 18px 0 20px; color: var(--seal); font: 19px/1.75 var(--serif); }
+.mbti-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mbti-grid > div { min-width: 0; padding: 19px 22px; background: #eee8dc; border-top: 2px solid var(--green); }
+.mbti-grid h3, .mbti-synthesis h3 { margin: 0; color: var(--green); font: 600 15px/1.6 var(--sans); }
+.reading .mbti-grid p { margin-top: 9px; font-size: 15px; }
+.mbti-synthesis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; margin-top: 28px; padding-top: 23px; border-top: 1px solid var(--line); }
+.mbti-synthesis h3 { grid-column: 1 / -1; color: var(--seal); font: 22px/1.4 var(--serif); }
+.mbti-synthesis > div { min-width: 0; padding-left: 14px; border-left: 2px solid var(--seal); }
+.mbti-synthesis strong { color: var(--green); font-size: 13px; }
+.reading .mbti-synthesis p { margin-top: 7px; font-size: 15px; }
+.reading .mbti-footnote { margin-top: 22px; color: var(--muted); font-size: 12px; }
+.mbti-loading { display: flex; align-items: center; gap: 12px; min-height: 90px; color: var(--green); font-size: 15px; }
+.mbti-loading .portrait-spinner { width: 25px; height: 25px; margin: 0; }
 .reading.overview { position: relative; padding: 24px 29px 27px; border-top: 0; background: #e9e2d5; }
 .reading.overview > h2, .reading.overview > p { position: relative; z-index: 1; }
 .reading.overview > p { color: var(--seal); font: 18px/1.8 var(--serif); }
@@ -387,6 +402,9 @@ details summary { min-height: 42px; color: var(--green); font-size: 14px; }
   .result-placeholder-luck, .luck-reading.ready { min-height: 1020px; }
   .result-placeholder-annual, .annual-reading.ready { min-height: 1680px; }
   .reading, .reading.overview, .reading.personality-reading, .reading.zodiac-reading, .result-stack > details.reading, .result-stack > .actions { grid-column: 1; }
+  .reading.mbti-reading { grid-column: 1; min-height: 680px; }
+  .mbti-grid, .mbti-synthesis { grid-template-columns: 1fr; }
+  .mbti-grid > div { padding: 17px 18px; }
   .reading { padding: 21px 2px 27px; }
   .reading.overview { padding: 23px; }
   .reading.overview > p { font-size: 16px; }

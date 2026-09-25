@@ -19,6 +19,8 @@ export function copyReport(chart: ChartFacts, reading: Reading | null, annualYea
     paragraph("人格", reading?.personality.summary?.text),
     reading?.personality.strengths.map((item) => cleanReadingText(item.text)).join("\n") ?? "",
     paragraph("相处", reading?.personality.relationshipAdvice?.text),
+    reading?.mbtiProfile ? `你填写的 MBTI · ${reading.mbtiProfile.type}\n${reading.mbtiProfile.overview}\n${reading.mbtiProfile.strengths}\n${reading.mbtiProfile.blindSpots}\n${reading.mbtiProfile.communication}\n${reading.mbtiProfile.growth}` : "",
+    reading?.mbtiNote ? `结合中式人格\n${reading.mbtiNote.commonGround}\n${reading.mbtiNote.difference}\n${reading.mbtiNote.practice}` : "",
     paragraph("当前阶段", reading?.currentLuck.summary?.text),
     paragraph("机会与可用方向", reading?.currentLuck.opportunity?.text),
     paragraph("需要留意与如何应对", reading?.currentLuck.attention?.text),

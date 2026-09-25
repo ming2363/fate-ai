@@ -1,12 +1,23 @@
 import type { ChartFacts, FortuneReading, IdentityReading, Reading, ReadingTaskId } from "@/lib/shared/chart-types";
 import type { Focus } from "@/lib/shared/schemas";
+import { z } from "zod";
+import { MBTI_TYPES, type MbtiProfile, type MbtiType } from "@/lib/shared/mbti";
 import { CONTENT_BYTE_LIMIT } from "@/lib/shared/versions";
 
 import { deepseekRequestBody, officialChatUrl, type ChatMessage } from "@/lib/server/deepseek";
 import { buildReadingContext, buildTaskContext } from "@/lib/server/reading-context";
 import { validateReading, validateTaskReading } from "@/lib/server/reading-validate";
 import { readUpstreamSse } from "@/lib/server/upstream";
-import { FORTUNE_PROMPT, IDENTITY_PROMPT, RETRY_INSTRUCTION, SYSTEM_PROMPT, TASK_REPAIR_PROMPT } from "@/prompts/system-prompt";
+import { FORTUNE_PROMPT, IDENTITY_PROMPT, MBTI_PROMPT, RETRY_INSTRUCTION, SYSTEM_PROMPT, TASK_REPAIR_PROMPT } from "@/prompts/system-prompt";
+
+const mbtiProfileSchema = z.object({
+  type: z.enum(MBTI_TYPES),
+  overview: z.string().min(20).max(180),
+  strengths: z.string().min(20).max(180),
+  blindSpots: z.string().min(20).max(180),
+  communication: z.string().min(20).max(180),
+  growth: z.string().min(20).max(180),
+}).strict();
 
 export type ReadingEmit =
   | { readonly event: "status"; readonly phase: "waiting" | "thinking" | "answering" | "validating" }
@@ -105,10 +116,41 @@ async function oneAttempt(args: {
   }
 }
 
+export async function runMbtiProfile(args: {
+  type: MbtiType;
+  apiKey: string;
+  signal: AbortSignal;
+  fetchImpl?: typeof fetch;
+  onUsage?: (usage: UsageNote) => void;
+  onStatus?: (phase: "waiting" | "thinking" | "answering" | "validating") => void;
+}): Promise<MbtiProfile | null> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 75_000);
+  try {
+    const result = await oneAttempt({
+      messages: [{ role: "system", content: MBTI_PROMPT }, { role: "user", content: JSON.stringify({ type: args.type }) }],
+      apiKey: args.apiKey,
+      signal: AbortSignal.any([args.signal, timeout.signal]),
+      fetchImpl: args.fetchImpl ?? fetch,
+      onUsage: (usage) => args.onUsage?.(usage),
+      emit: (event) => { if (event.event === "status") args.onStatus?.(event.phase); },
+    });
+    if (!result.ok || args.signal.aborted || timeout.signal.aborted) return null;
+    args.onStatus?.("validating");
+    let payload: unknown;
+    try { payload = JSON.parse(result.content) as unknown; } catch { return null; }
+    const parsed = mbtiProfileSchema.safeParse(payload);
+    return parsed.success && parsed.data.type === args.type ? parsed.data : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function runReading(args: {
   facts: ChartFacts;
   focus: Focus;
   question: string;
+  mbtiProfile?: MbtiProfile | null;
   apiKey: string;
   signal: AbortSignal;
   deadlineMs: number;
@@ -121,7 +163,7 @@ export async function runReading(args: {
   const signal = AbortSignal.any([args.signal, timeout.signal]);
   try {
     const fetchImpl = args.fetchImpl ?? fetch;
-    const context = buildReadingContext(args.facts, args.focus, args.question);
+    const context = buildReadingContext(args.facts, args.focus, args.question, args.mbtiProfile);
     const messages: ChatMessage[] = [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: JSON.stringify(context) },
@@ -174,7 +216,7 @@ export async function runReading(args: {
         args.emit({ event: "error", code: "INVALID_JSON", message: "模型没有返回可校验的 JSON", retryable: true });
         return "failed";
       }
-      const validated = validateReading(payload, args.facts);
+      const validated = validateReading(payload, args.facts, Boolean(args.mbtiProfile));
       if (timeout.signal.aborted || Date.now() >= args.deadlineMs) {
         args.emit({ event: "error", code: "TIMEOUT", message: "解读超过整轮时限", retryable: false });
         return "failed";
@@ -214,6 +256,7 @@ export async function runParallelReading(args: {
   facts: ChartFacts;
   focus: Focus;
   question: string;
+  mbtiProfile?: MbtiProfile | null;
   apiKey: string;
   signal: AbortSignal;
   deadlineMs: number;
@@ -235,7 +278,7 @@ export async function runParallelReading(args: {
     if (signal.aborted) return { ok: false, taskId, attempt, failure: { code: "CANCELLED", message: "解读已取消", retryable: false, errors: [] } };
     const messages: ChatMessage[] = [
       { role: "system", content: taskId === "identity" ? IDENTITY_PROMPT : FORTUNE_PROMPT },
-      { role: "user", content: JSON.stringify(buildTaskContext(args.facts, taskId, args.focus, args.question)) },
+      { role: "user", content: JSON.stringify(buildTaskContext(args.facts, taskId, args.focus, args.question, args.mbtiProfile)) },
     ];
     if (previous) messages.push({ role: "user", content: `${TASK_REPAIR_PROMPT}\n${JSON.stringify({ errors: previous.errors, oldOutput: previous.content?.slice(0, 8000) ?? null })}` });
     const result = await oneAttempt({
@@ -257,7 +300,7 @@ export async function runParallelReading(args: {
       return { ok: false, taskId, attempt, failure: { code: "INVALID_JSON", message: "模型没有返回可校验的 JSON", retryable: true, errors: ["content 不是合法 JSON"], content: result.content } };
     }
     const validated = taskId === "identity"
-      ? validateTaskReading(payload, args.facts, "identity")
+      ? validateTaskReading(payload, args.facts, "identity", Boolean(args.mbtiProfile))
       : validateTaskReading(payload, args.facts, "fortune");
     if (!validated.ok) return { ok: false, taskId, attempt, failure: { code: "SCHEMA_INVALID", message: "解读没有通过结构检查", retryable: true, errors: validated.errors, content: result.content } };
     if (taskId === "identity") args.emit({ event: "module_result", taskId, attempt, part: validated.part as IdentityReading });

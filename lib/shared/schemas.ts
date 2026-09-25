@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { SHICHEN } from "@/lib/shared/shichen";
+import { MBTI_TYPES } from "@/lib/shared/mbti";
 
 const shichenIds = SHICHEN.map((item) => item.id) as [
   (typeof SHICHEN)[number]["id"],
@@ -49,6 +50,7 @@ export const readingRequestSchema = birthInputSchema
     historyId: z.string().uuid().optional(),
     focus: z.enum(["general", "career", "relationship", "finance"]),
     question: z.string().max(200),
+    mbti: z.enum(MBTI_TYPES).nullable().optional(),
     asOfUtc: z.string().min(1),
     requestedTasks: z.array(z.enum(["identity", "fortune"])).min(1).max(2).optional(),
   })

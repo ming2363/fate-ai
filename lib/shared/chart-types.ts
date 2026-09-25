@@ -176,8 +176,14 @@ export type Reading = {
     readonly segments: readonly { readonly periodId: string; readonly summary: Paragraph }[];
   }[];
   readonly zodiacNote: Paragraph | null;
+  readonly mbtiNote?: {
+    readonly commonGround: string;
+    readonly difference: string;
+    readonly practice: string;
+  } | null;
+  readonly mbtiProfile?: import("@/lib/shared/mbti").MbtiProfile | null;
 };
 
 export type ReadingTaskId = "identity" | "fortune";
-export type IdentityReading = Pick<Reading, "personality" | "zodiacNote">;
+export type IdentityReading = Pick<Reading, "personality" | "zodiacNote" | "mbtiNote">;
 export type FortuneReading = Pick<Reading, "overview" | "currentLuck" | "annualReadings">;

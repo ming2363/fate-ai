@@ -130,6 +130,8 @@ export function FateApp() {
   const [offsetOptions, setOffsetOptions] = useState<string[]>([]);
   const [chart, setChart] = useState<ChartFacts | null>(null);
   const [reading, setReading] = useState<Reading | null>(null);
+  const [mbtiError, setMbtiError] = useState("");
+  const [mbtiPhase, setMbtiPhase] = useState("waiting");
   const [phase, setPhase] = useState<Phase>("idle");
   const [streamMode, setStreamMode] = useState<"unknown" | "single" | "parallel">("unknown");
   const [announcement, setAnnouncement] = useState("");
@@ -222,6 +224,8 @@ export function FateApp() {
     setShowForm(true);
     setChart(null);
     setReading(null);
+    setMbtiError("");
+    setMbtiPhase("waiting");
     setStreamMode("unknown");
     setThinking("");
     setTaskThinking({ identity: { text: "", truncated: false }, fortune: { text: "", truncated: false } });
@@ -299,6 +303,8 @@ export function FateApp() {
     abortRef.current = abort;
     setErrors({});
     setReading(null);
+    setMbtiError("");
+    setMbtiPhase("waiting");
     setStreamMode("unknown");
     setMessage("");
     setThinking("");
@@ -374,6 +380,7 @@ export function FateApp() {
         historyId: historyIdRef.current,
         focus: form.focus,
         question: form.question,
+        mbti: form.mbti || null,
         asOfUtc: facts.asOfUtc,
         requestedTasks,
       }),
@@ -435,6 +442,9 @@ export function FateApp() {
           if (localSeq !== seq.current) continue;
           if (parsed.event === "status" && typeof data.phase === "string") { setStreamMode("single"); setLivePhase(data.phase as Phase); }
           if (parsed.event === "thinking_delta" && typeof data.text === "string") pending += data.text;
+          if (parsed.event === "mbti_status" && typeof data.phase === "string") { setMbtiPhase(data.phase); setLivePhase(data.phase as Phase); }
+          if (parsed.event === "mbti_profile" && data.profile && typeof data.profile === "object") { setReading((prev) => ({ ...(prev ?? blankReading(facts)), mbtiProfile: data.profile as Reading["mbtiProfile"] })); setMbtiPhase("done"); }
+          if (parsed.event === "mbti_error") { setMbtiError(typeof data.message === "string" ? data.message : "MBTI 侧写未完成。"); setMbtiPhase("failed"); }
           const taskId = data.taskId === "identity" || data.taskId === "fortune" ? data.taskId : null;
           if (taskId && parsed.event === "module_status" && typeof data.phase === "string") {
             setStreamMode("parallel");
@@ -629,6 +639,7 @@ export function FateApp() {
           <div><span>出生地</span><strong>{birthPlaceLabel}</strong></div>
           <div><span>采用时区</span><strong>{birthZoneLabel}</strong></div>
           <div><span>关注方向</span><strong>{focusLabel}</strong></div>
+          {resultForm.mbti ? <div><span>自填 MBTI</span><strong>{resultForm.mbti}</strong></div> : null}
         </div>
         {chart ? <p className="result-input-pillars"><span>排出的八字</span><strong>{[chart.bazi.year.value, chart.bazi.month.value, chart.bazi.day.value, chart.bazi.time.value].map((pillar) => pillar ?? "待确认").join(" · ")}</strong></p> : null}
         {resultForm.question.trim() ? <p className="result-input-question"><span>特别想了解</span>{resultForm.question.trim()}</p> : null}
@@ -674,6 +685,25 @@ export function FateApp() {
           ) : !finalPhase && !identityReady ? <LoadingSection marker="格" title="人格解读" kind="personality" /> : showIdentity && chart.persona.status !== "determined" ? (
             <section className="reading personality-reading"><h2><span className="idx">格</span>人格解读</h2><p>日主尚未唯一确定，这里不写专属人格正文。</p></section>
           ) : <section className="reading personality-reading"><h2><span className="idx">格</span>人格解读</h2><p className="module-notice">{taskErrors.identity ?? "人格解读暂未完成。"}</p></section>}
+          {resultForm.mbti ? <section className="reading mbti-reading" aria-label="自填 MBTI 解读">
+            <h2><span className="idx">型</span>你填写的 MBTI <span className="mbti-type">{resultForm.mbti}</span></h2>
+            {reading?.mbtiProfile ? <>
+              <p className="mbti-lead">{reading.mbtiProfile.overview}</p>
+              <div className="mbti-grid">
+                <div><h3>可发挥的偏好</h3><p>{reading.mbtiProfile.strengths}</p></div>
+                <div><h3>容易忽略的地方</h3><p>{reading.mbtiProfile.blindSpots}</p></div>
+                <div><h3>与人沟通</h3><p>{reading.mbtiProfile.communication}</p></div>
+                <div><h3>成长练习</h3><p>{reading.mbtiProfile.growth}</p></div>
+              </div>
+            </> : mbtiError ? <p className="module-notice">{mbtiError}</p> : <div className="mbti-loading" role="status"><span className="portrait-spinner" aria-hidden="true" />{mbtiPhase === "validating" ? "正在整理 MBTI 侧写" : "正在解读你的 MBTI"}</div>}
+            {reading?.mbtiNote ? <div className="mbti-synthesis">
+              <h3>和中式人格放在一起看</h3>
+              <div><strong>相呼应</strong><p>{reading.mbtiNote.commonGround}</p></div>
+              <div><strong>不同视角</strong><p>{reading.mbtiNote.difference}</p></div>
+              <div><strong>可以试试</strong><p>{reading.mbtiNote.practice}</p></div>
+            </div> : !finalPhase && reading?.mbtiProfile ? <p className="module-notice">正在结合八字，整理两种视角的共同点与行动建议…</p> : null}
+            <p className="mbti-footnote">MBTI 来自你填写的自测类型；这里用于性格偏好与建议，不改变排盘结果。</p>
+          </section> : null}
           {showIdentity ? <ZodiacPanel chart={chart} cultureNote={reading?.zodiacNote?.text} /> : <LoadingSection marker="星" title="太阳星座" kind="zodiac" />}
           {showFortune ? <section className={`reading detailed-reading luck-reading${reading?.currentLuck.summary ? " ready" : ""}`}>
             <h2><span className="idx">运</span>当前大运</h2>
@@ -757,6 +787,7 @@ export function FateApp() {
       ) : !showForm ? <div className="result-stack">
         <LoadingSection marker="总" title="一句话总览" kind="overview" />
         <LoadingSection marker="格" title="人格解读" kind="personality" />
+        {resultForm.mbti ? <LoadingSection marker="型" title={`MBTI · ${resultForm.mbti}`} kind="personality" /> : null}
         <LoadingSection marker="星" title="太阳星座" kind="zodiac" />
         <LoadingSection marker="运" title="当前大运" kind="luck" />
         <LoadingSection marker="年" title="年度流年" kind="annual" />

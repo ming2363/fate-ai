@@ -1,12 +1,13 @@
 import type { ChartFacts, ReadingTaskId } from "@/lib/shared/chart-types";
 import type { Focus } from "@/lib/shared/schemas";
 import { PROMPT_VERSION } from "@/lib/shared/versions";
+import type { MbtiProfile } from "@/lib/shared/mbti";
 
-export function buildReadingContext(facts: ChartFacts, focus: Focus, question: string): {
+export function buildReadingContext(facts: ChartFacts, focus: Focus, question: string, mbtiProfile: MbtiProfile | null = null): {
   readonly task: "generate_reading";
   readonly promptVersion: string;
   readonly trusted_context: Record<string, unknown>;
-  readonly user_input: { readonly focus: Focus; readonly question: string };
+  readonly user_input: { readonly focus: Focus; readonly question: string; readonly mbtiProfile: MbtiProfile | null };
 } {
   return {
     task: "generate_reading",
@@ -48,11 +49,11 @@ export function buildReadingContext(facts: ChartFacts, focus: Focus, question: s
       limitations: facts.limitations,
       factCatalog: facts.factCatalog,
     },
-    user_input: { focus, question },
+    user_input: { focus, question, mbtiProfile },
   };
 }
 
-export function buildTaskContext(facts: ChartFacts, taskId: ReadingTaskId, focus: Focus, question: string) {
+export function buildTaskContext(facts: ChartFacts, taskId: ReadingTaskId, focus: Focus, question: string, mbtiProfile: MbtiProfile | null = null) {
   const identity = taskId === "identity";
   return {
     task: identity ? "generate_identity" as const : "generate_fortune" as const,
@@ -79,6 +80,6 @@ export function buildTaskContext(facts: ChartFacts, taskId: ReadingTaskId, focus
       limitations: facts.limitations.filter((item) => !/星座|交界/.test(item)),
       factCatalog: facts.factCatalog.filter((item) => /^(natal\.|luck\.|annual\.|limit\.)/.test(item.id) && !item.id.includes("zodiac")),
     },
-    user_input: { focus, question },
+    user_input: { focus, question, mbtiProfile },
   };
 }
