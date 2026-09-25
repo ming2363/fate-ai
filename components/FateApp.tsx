@@ -11,6 +11,7 @@ import { ThinkingPanel } from "@/components/ThinkingPanel";
 import { ZodiacPanel } from "@/components/ZodiacPanel";
 import { AnalysisBasis } from "@/components/AnalysisBasis";
 import { GlossaryText } from "@/components/GlossaryText";
+import { FestivalLabel, FestivalOrnaments } from "@/components/FestivalDecor";
 import { CITIES, PROVINCES } from "@/lib/shared/cities";
 import type { ChartFacts, FortuneReading, IdentityReading, Reading, ReadingTaskId } from "@/lib/shared/chart-types";
 import { copyReport } from "@/lib/shared/copy-report";
@@ -20,6 +21,7 @@ import { parseSseBlock } from "@/lib/shared/sse";
 import { createRequestId } from "@/lib/shared/request-id";
 import { appendThinking } from "@/lib/shared/thinking";
 import { SITE_NAME } from "@/lib/shared/versions";
+import type { FestivalTheme } from "@/lib/shared/festival";
 
 type Phase = "idle" | "charting" | "waiting" | "thinking" | "answering" | "validating" | "done" | "failed" | "cancelled";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -153,6 +155,7 @@ export function FateApp() {
   const [portraitStatus, setPortraitStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [cardPreview, setCardPreview] = useState<string | null>(null);
   const [cardExporting, setCardExporting] = useState(false);
+  const [festival, setFestival] = useState<FestivalTheme | null>(null);
   const seq = useRef(0);
   const requestIdRef = useRef("");
   const seenSeq = useRef(new Set<number>());
@@ -163,6 +166,26 @@ export function FateApp() {
   const phaseRef = useRef<Phase>("idle");
   const portraitAbortRef = useRef<AbortController | null>(null);
   const portraitKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`${BASE_PATH}/api/festival`, { cache: "no-store" });
+        if (response.ok) {
+          const theme = await response.json() as FestivalTheme | null;
+          if (active) setFestival(theme);
+        }
+      } catch { /* Decoration never blocks the reading. */ }
+      if (active) {
+        const chinaTime = (Date.now() + 8 * 60 * 60 * 1000) % 86_400_000;
+        timer = setTimeout(() => void refresh(), 86_400_000 - chinaTime + 1000);
+      }
+    };
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -559,13 +582,14 @@ export function FateApp() {
     <main className="shell" id="main">
       <header className="site-top">
         <div className="brand"><Image src={`${BASE_PATH}/icon.svg`} alt="" width={44} height={44} unoptimized className="brand-mark" /><span>{SITE_NAME}<small>一纸自观 · 八字解读</small></span></div>
-        <span className="top-note">生辰入纸　见字如你</span>
+        <span className={`top-note${festival ? " top-note-festival" : ""}`}>{festival ? <FestivalLabel theme={festival} /> : "生辰入纸　见字如你"}</span>
       </header>
       <p className="sr" aria-live="polite">{announcement}</p>
       {showForm ? (
         <div className="entry">
           <section className="hero" aria-labelledby="intro-title">
             <Image src={`${BASE_PATH}/ink-still-life.png`} alt="" fill priority sizes="(max-width: 700px) 100vw, 1200px" className="hero-image" />
+            {festival ? <FestivalOrnaments theme={festival} place="hero" /> : null}
             <div className="hero-copy">
               <p className="eyebrow"><span className="eyebrow-line" /> 知命 · 一纸自观</p>
               <h1 id="intro-title">生辰入纸，<br /><em>见字如你。</em></h1>
@@ -573,11 +597,11 @@ export function FateApp() {
             </div>
             <p className="hero-caption">八字 · 中式人格 · 星座交界</p>
           </section>
-          <div className="form-overlap"><BirthForm form={form} errors={errors} offsetOptions={offsetOptions} pending={phase === "charting"} onChange={setForm} onSubmit={() => void submit()} /></div>
+          <div className="form-overlap">{festival ? <FestivalOrnaments theme={festival} place="form" /> : null}<BirthForm form={form} errors={errors} offsetOptions={offsetOptions} pending={phase === "charting"} onChange={setForm} onSubmit={() => void submit()} /></div>
         </div>
       ) : (
         <div className="result-intro">
-          <div><p className="eyebrow"><span className="eyebrow-line" /> 你的命盘</p><h1>{chart?.persona.title ? `${chart.persona.title}，读懂你的节奏。` : "你的命盘，正在展开。"}</h1></div>
+          <div><p className="eyebrow"><span className="eyebrow-line" /> 你的命盘</p><h1>{chart?.persona.title ? `${chart.persona.title}，读懂你的节奏。` : "你的命盘，正在展开。"}</h1>{festival ? <FestivalLabel theme={festival} /> : null}</div>
           <button type="button" className="outline-button" onClick={editBirth}>修改出生信息 <span aria-hidden="true">↗</span></button>
         </div>
       )}
@@ -609,6 +633,7 @@ export function FateApp() {
           {showFortune && reading?.overview.text ? (
             <section className="reading overview">
               <h2><span className="idx">总</span>一句话总览</h2>
+              {festival ? <FestivalOrnaments theme={festival} place="overview" /> : null}
               <p><GlossaryText text={reading.overview.text} /></p>
             </section>
           ) : !finalPhase && !fortuneReady ? <LoadingSection marker="总" title="一句话总览" kind="overview" /> : null}

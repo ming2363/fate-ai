@@ -20,6 +20,7 @@ declare module "lunar-javascript" {
     toYmd(): string;
     toYmdHms(): string;
     getLunar(): LunarLike;
+    getFestivals(): string[];
   };
 
   export type LunarLike = {
@@ -33,6 +34,9 @@ declare module "lunar-javascript" {
     getEightChar(): EightCharLike;
     getJieQiTable(): Record<string, LunarSolar>;
     getJieQiList(): string[];
+    getJieQi(): string;
+    getFestivals(): string[];
+    getOtherFestivals(): string[];
   };
 
   export type EightCharLike = {
