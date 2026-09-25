@@ -558,7 +558,7 @@ export function FateApp() {
   return (
     <main className="shell" id="main">
       <header className="site-top">
-        <div className="brand"><span className="brand-seal" aria-hidden="true">知<br />命</span><span>{SITE_NAME}<small>一纸自观 · 八字解读</small></span></div>
+        <div className="brand"><Image src={`${BASE_PATH}/icon.svg`} alt="" width={44} height={44} unoptimized className="brand-mark" /><span>{SITE_NAME}<small>一纸自观 · 八字解读</small></span></div>
         <span className="top-note">生辰入纸　见字如你</span>
       </header>
       <p className="sr" aria-live="polite">{announcement}</p>

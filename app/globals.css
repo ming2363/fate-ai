@@ -26,7 +26,7 @@ h1, h2, h3 { margin: 0; font-family: var(--serif); font-weight: 500; }
 .site-top { display: flex; align-items: center; justify-content: space-between; min-height: 86px; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 12px; font: 700 22px/1.1 var(--serif); letter-spacing: .17em; }
 .brand small { display: block; margin-top: 6px; color: var(--muted); font: 400 10px/1.3 var(--sans); letter-spacing: .16em; }
-.brand-seal { display: grid; place-items: center; width: 37px; height: 46px; border: 1px solid var(--seal); color: var(--seal); font: 600 14px/1.1 var(--serif); text-align: center; letter-spacing: 0; }
+.brand-mark { flex: none; width: 44px; height: 44px; }
 .top-note { color: var(--muted); font: 12px/1.4 var(--serif); letter-spacing: .2em; }
 
 .entry { padding-bottom: 64px; }
@@ -296,7 +296,7 @@ details summary { min-height: 42px; color: var(--green); font-size: 14px; }
   .shell { padding-inline: 15px; }
   .site-top { min-height: 72px; }
   .brand { font-size: 18px; }
-  .brand-seal { width: 32px; height: 40px; font-size: 12px; }
+  .brand-mark { width: 38px; height: 38px; }
   .top-note { display: none; }
   .entry { padding-bottom: 35px; }
   .hero { height: 320px; }
