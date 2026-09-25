@@ -13,7 +13,7 @@ import { assertSameOrigin, beginInflight, clientAddress, consumeRateLimit, endIn
 import { errorResponse, jsonResponse, readJson } from "@/lib/server/http";
 import { logEvent } from "@/lib/server/log";
 import { logOperation, saveReading, tryStore } from "@/lib/server/history";
-import { runParallelReading, runReading, type ReadingEmit, type TaskReadingEmit } from "@/lib/server/reading-run";
+import { runParallelReading, runReading, type ReadingEmit, type TaskReadingEmit, type UsageNote } from "@/lib/server/reading-run";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -87,6 +87,7 @@ export async function POST(request: Request): Promise<Response> {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        const modelCalls: Array<{ usage: UsageNote; taskId: string; attempt: number; at: Date }> = [];
         const heartbeat = setInterval(() => {
           try {
             controller.enqueue(encoder.encode(": ping\n\n"));
@@ -116,15 +117,18 @@ export async function POST(request: Request): Promise<Response> {
           };
           const outcome = process.env.READING_MODE === "single" ? await runReading({
             ...shared,
-            onUsage: (usage) => logEvent({
-              requestId: body.requestId,
-              phase: "model",
-              modelMs: usage.modelMs,
-              promptTokens: usage.promptTokens,
-              completionTokens: usage.completionTokens,
-              rulesVersion: facts.rulesVersion,
-              attempt,
-            }),
+            onUsage: (usage) => {
+              modelCalls.push({ usage, taskId: "single", attempt, at: new Date() });
+              logEvent({
+                requestId: body.requestId,
+                phase: "model",
+                modelMs: usage.modelMs,
+                promptTokens: usage.promptTokens,
+                completionTokens: usage.completionTokens,
+                rulesVersion: facts.rulesVersion,
+                attempt,
+              });
+            },
             emit: (event: ReadingEmit) => {
               if (event.event === "retry") attempt = 2;
               if (event.event === "status") write("status", { phase: event.phase });
@@ -136,15 +140,18 @@ export async function POST(request: Request): Promise<Response> {
           }) : await runParallelReading({
             ...shared,
             tasks: requestedTasks,
-            onUsage: (usage, taskId, taskAttempt) => logEvent({
-              requestId: body.requestId,
-              phase: `model-${taskId}`,
-              modelMs: usage.modelMs,
-              promptTokens: usage.promptTokens,
-              completionTokens: usage.completionTokens,
-              rulesVersion: facts.rulesVersion,
-              attempt: taskAttempt,
-            }),
+            onUsage: (usage, taskId, taskAttempt) => {
+              modelCalls.push({ usage, taskId, attempt: taskAttempt, at: new Date() });
+              logEvent({
+                requestId: body.requestId,
+                phase: `model-${taskId}`,
+                modelMs: usage.modelMs,
+                promptTokens: usage.promptTokens,
+                completionTokens: usage.completionTokens,
+                rulesVersion: facts.rulesVersion,
+                attempt: taskAttempt,
+              });
+            },
             emit: (event: TaskReadingEmit) => {
               if (event.event === "module_status") write(event.event, { taskId: event.taskId, attempt: event.attempt, phase: event.phase });
               if (event.event === "module_thinking_delta") write(event.event, { taskId: event.taskId, attempt: event.attempt, text: event.text });
@@ -167,6 +174,11 @@ export async function POST(request: Request): Promise<Response> {
           logEvent({ requestId: body.requestId, phase: "reading-error", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" });
           await tryStore(() => logOperation({ request, sessionId: session.id, historyId: body.historyId, event: "reading", outcome: "failed", durationMs: Date.now() - started, errorCode: error instanceof Error ? error.name : "UNKNOWN" }));
         } finally {
+          await Promise.all(modelCalls.map(({ usage, taskId, attempt: modelAttempt, at }) => tryStore(() => logOperation({
+            request, sessionId: session.id, historyId: body.historyId, requestId: body.requestId,
+            event: "model_call", outcome: usage.promptTokens === null ? "unreported" : "reported",
+            taskId, attempt: modelAttempt, model: "deepseek-flash", usage, usageAt: at, durationMs: usage.modelMs,
+          }))));
           clearInterval(heartbeat);
           request.signal.removeEventListener("abort", onAbort);
           endInflight(session.id, body.requestId);

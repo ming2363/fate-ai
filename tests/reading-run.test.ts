@@ -19,6 +19,7 @@ function sse(text: string, status = 200): Response {
 describe("模型流控制", () => {
   it("截断输出不标为成功，也不自动重试", async () => {
     let calls = 0;
+    let measuredCalls = 0;
     const events: ReadingEmit[] = [];
     const outcome = await runReading({
       facts,
@@ -28,6 +29,7 @@ describe("模型流控制", () => {
       signal: new AbortController().signal,
       deadlineMs: Date.now() + 5_000,
       emit: (event) => events.push(event),
+      onUsage: () => { measuredCalls += 1; },
       fetchImpl: async (_url, init) => {
         calls += 1;
         const body = JSON.parse(String(init?.body));
@@ -38,6 +40,7 @@ describe("模型流控制", () => {
       },
     });
     expect(calls).toBe(1);
+    expect(measuredCalls).toBe(1);
     expect(outcome).toBe("failed");
     expect(events.some((event) => event.event === "result")).toBe(false);
     expect(events.some((event) => event.event === "error" && event.code === "OUTPUT_TRUNCATED")).toBe(true);

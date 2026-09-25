@@ -5,6 +5,8 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2";
 
 import { database } from "@/lib/server/db";
 import { clientAddress } from "@/lib/server/guard";
+import { estimateFlashCost, PRICE_VERSION } from "@/lib/server/model-cost";
+import type { UsageNote } from "@/lib/server/reading-run";
 
 export async function saveChart(args: {
   id: string; sessionId: string; input: BirthInput; facts: ChartFacts; focus?: Focus; question?: string;
@@ -49,11 +51,13 @@ export async function savePortrait(id: string, sessionId: string, image: string)
 
 export async function logOperation(args: {
   request: Request; sessionId: string; event: string; outcome: string; historyId?: string | null; durationMs?: number; errorCode?: string;
+  requestId?: string; taskId?: string; attempt?: number; model?: string; usage?: UsageNote; usageAt?: Date;
 }): Promise<void> {
   const ip = clientAddress(args.request);
+  const estimate = args.usage ? estimateFlashCost(args.usage, args.usageAt) : null;
   await database().execute(
-    "INSERT INTO fate_operation_log (session_id, history_id, event, outcome, ip, duration_ms, error_code) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [args.sessionId, args.historyId ?? null, args.event, args.outcome, ip === "direct" ? null : ip, args.durationMs ?? null, args.errorCode ?? null],
+    "INSERT INTO fate_operation_log (session_id, history_id, event, outcome, ip, duration_ms, error_code, request_id, task_id, attempt, model, prompt_tokens, cache_hit_tokens, cache_miss_tokens, completion_tokens, estimated_cost_cny, price_tier, price_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [args.sessionId, args.historyId ?? null, args.event, args.outcome, ip === "direct" ? null : ip, args.durationMs ?? null, args.errorCode ?? null, args.requestId ?? null, args.taskId ?? null, args.attempt ?? null, args.model ?? null, args.usage?.promptTokens ?? null, args.usage?.cacheHitTokens ?? null, args.usage?.cacheMissTokens ?? null, args.usage?.completionTokens ?? null, estimate?.costCny ?? null, estimate?.priceTier ?? null, estimate ? PRICE_VERSION : null],
   );
 }
 

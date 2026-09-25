@@ -1,0 +1,12 @@
+ALTER TABLE fate_operation_log
+  ADD COLUMN request_id CHAR(36) NULL,
+  ADD COLUMN task_id VARCHAR(16) NULL,
+  ADD COLUMN attempt TINYINT UNSIGNED NULL,
+  ADD COLUMN model VARCHAR(64) NULL,
+  ADD COLUMN prompt_tokens INT UNSIGNED NULL,
+  ADD COLUMN cache_hit_tokens INT UNSIGNED NULL,
+  ADD COLUMN cache_miss_tokens INT UNSIGNED NULL,
+  ADD COLUMN completion_tokens INT UNSIGNED NULL,
+  ADD COLUMN estimated_cost_cny DECIMAL(12,6) NULL,
+  ADD COLUMN price_tier VARCHAR(8) NULL,
+  ADD COLUMN price_version VARCHAR(16) NULL;

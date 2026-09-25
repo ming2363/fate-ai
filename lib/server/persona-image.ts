@@ -1,6 +1,7 @@
 import { PERSONA_BY_GAN, type DayMaster } from "@/lib/shared/persona";
 import { signById, type SignId } from "@/lib/shared/signs";
 import { zodiacProfile } from "@/lib/shared/zodiac-reading";
+import { HttpError } from "@/lib/server/errors";
 
 const IMAGE_URL = "https://model-api.maas.com.cn/v1/images/generations";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -20,7 +21,7 @@ export async function generatePersonaImage(dayMaster: DayMaster, gender: "male" 
     signal,
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("IMAGE_MODEL_FAILED");
+  if (!response.ok) throw new HttpError(response.status === 429 ? 503 : 502, response.status === 429 ? "IMAGE_BUSY" : "IMAGE_MODEL_FAILED", response.status === 429 ? "绘画服务正忙，请稍后重试。" : "绘画服务暂时没有完成，请稍后重试。", true);
   const payload = await response.json() as { data?: { url?: string; b64_json?: string | null }[] };
   const item = payload.data?.[0];
   if (item?.b64_json) {

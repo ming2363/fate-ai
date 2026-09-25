@@ -2,7 +2,7 @@ export type UpstreamDelta = {
   readonly reasoning: string | null;
   readonly content: string | null;
   readonly finishReason: string | null;
-  readonly usage: { readonly promptTokens: number | null; readonly completionTokens: number | null } | null;
+  readonly usage: { readonly promptTokens: number | null; readonly completionTokens: number | null; readonly cacheHitTokens: number | null; readonly cacheMissTokens: number | null } | null;
 };
 
 type ChoiceDelta = {
@@ -29,6 +29,8 @@ export function parseUpstreamPayload(payload: unknown): UpstreamDelta | null {
     usage: usageRecord ? {
       promptTokens: typeof usageRecord.prompt_tokens === "number" ? usageRecord.prompt_tokens : null,
       completionTokens: typeof usageRecord.completion_tokens === "number" ? usageRecord.completion_tokens : null,
+      cacheHitTokens: typeof usageRecord.prompt_cache_hit_tokens === "number" ? usageRecord.prompt_cache_hit_tokens : null,
+      cacheMissTokens: typeof usageRecord.prompt_cache_miss_tokens === "number" ? usageRecord.prompt_cache_miss_tokens : null,
     } : null,
   };
 }

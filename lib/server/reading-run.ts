@@ -19,6 +19,8 @@ export type UsageNote = {
   readonly modelMs: number;
   readonly promptTokens: number | null;
   readonly completionTokens: number | null;
+  readonly cacheHitTokens: number | null;
+  readonly cacheMissTokens: number | null;
 };
 
 type AttemptFailure = {
@@ -37,6 +39,8 @@ async function oneAttempt(args: {
   onUsage: (usage: UsageNote) => void;
 }): Promise<{ readonly ok: true; readonly content: string } | { readonly ok: false; readonly failure: AttemptFailure }> {
   const started = Date.now();
+  let usage: UsageNote = { modelMs: 0, promptTokens: null, completionTokens: null, cacheHitTokens: null, cacheMissTokens: null };
+  try {
   args.emit({ event: "status", phase: "waiting" });
   let response: Response;
   try {
@@ -64,7 +68,6 @@ async function oneAttempt(args: {
   let sawContent = false;
   let finishReason: string | null = null;
   let sawDone = false;
-  let usage: UsageNote = { modelMs: 0, promptTokens: null, completionTokens: null };
   try {
     for await (const item of readUpstreamSse(response)) {
       if (item === "done") {
@@ -85,20 +88,21 @@ async function oneAttempt(args: {
         }
       }
       if (item.finishReason) finishReason = item.finishReason;
-      if (item.usage) usage = { modelMs: Date.now() - started, promptTokens: item.usage.promptTokens, completionTokens: item.usage.completionTokens };
+      if (item.usage) usage = { modelMs: Date.now() - started, ...item.usage };
     }
   } catch (error) {
     if (args.signal.aborted) return { ok: false, failure: { retryable: false, code: "CANCELLED", message: "解读已取消", errors: [] } };
     if (error instanceof Error) return { ok: false, failure: { retryable: true, code: "UPSTREAM_TRUNCATED", message: "模型流意外中断", errors: [] } };
     throw error;
   }
-  usage = { ...usage, modelMs: Date.now() - started };
-  args.onUsage(usage);
   if (finishReason === "length") return { ok: false, failure: { retryable: false, code: "OUTPUT_TRUNCATED", message: "模型输出被截断，不能作为解读", errors: [] } };
   if (finishReason !== "stop" || !sawDone || content.trim().length === 0) {
     return { ok: false, failure: { retryable: true, code: "EMPTY_OUTPUT", message: "模型没有返回完整正文", errors: [] } };
   }
   return { ok: true, content };
+  } finally {
+    args.onUsage({ ...usage, modelMs: Date.now() - started });
+  }
 }
 
 export async function runReading(args: {

@@ -13,6 +13,7 @@ import { AnalysisBasis } from "@/components/AnalysisBasis";
 import { GlossaryText } from "@/components/GlossaryText";
 import { FestivalLabel, FestivalOrnaments } from "@/components/FestivalDecor";
 import { CITIES, PROVINCES } from "@/lib/shared/cities";
+import { findShichen } from "@/lib/shared/shichen";
 import type { ChartFacts, FortuneReading, IdentityReading, Reading, ReadingTaskId } from "@/lib/shared/chart-types";
 import { copyReport } from "@/lib/shared/copy-report";
 import { annualStatusMessage, readableMoment } from "@/lib/shared/display";
@@ -115,15 +116,16 @@ function LoadingSummary() {
   </section>;
 }
 
-function LoadingPortrait({ status, onRetry }: { readonly status: string; readonly onRetry?: () => void }) {
-  return <section className="persona-placeholder" aria-label="国风人格卡" aria-busy={!onRetry && status !== "暂无可用人物卡"}>
+function LoadingPortrait({ status, loading = false, onRetry }: { readonly status: string; readonly loading?: boolean; readonly onRetry?: () => void }) {
+  return <section className={`persona-placeholder${loading ? " is-loading" : ""}`} aria-label="国风人格卡" aria-busy={loading}>
     <span className="persona-placeholder-mark" aria-hidden="true">命</span>
-    <div><p className="kicker">中式MBTI人格卡</p><strong>{status}</strong><p>完成后将在这里呈现</p>{onRetry ? <button type="button" className="quiet" onClick={onRetry}>重试绘制人格卡</button> : null}</div>
+    <div><p className="kicker">中式MBTI人格卡</p>{loading ? <span className="portrait-spinner" aria-hidden="true" /> : null}<strong role="status">{status}</strong><p>{loading ? "解读可先阅读，画作完成后会自动呈现" : onRetry ? "可单独重试，不影响已有解读" : "完成后将在这里呈现"}</p>{onRetry ? <button type="button" className="quiet" onClick={onRetry}>重试绘制人格卡</button> : null}</div>
   </section>;
 }
 
 export function FateApp() {
   const [form, setForm] = useState(INITIAL_FORM);
+  const [submittedForm, setSubmittedForm] = useState<FormState | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offsetOptions, setOffsetOptions] = useState<string[]>([]);
   const [chart, setChart] = useState<ChartFacts | null>(null);
@@ -143,6 +145,7 @@ export function FateApp() {
   const [showForm, setShowForm] = useState(true);
   const [portrait, setPortrait] = useState<string | null>(null);
   const [portraitStatus, setPortraitStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [portraitError, setPortraitError] = useState("");
   const [cardPreview, setCardPreview] = useState<string | null>(null);
   const [cardExporting, setCardExporting] = useState(false);
   const [festival, setFestival] = useState<FestivalTheme | null>(null);
@@ -214,6 +217,8 @@ export function FateApp() {
     portraitKeyRef.current = null;
     setPortrait(null);
     setPortraitStatus("idle");
+    setPortraitError("");
+    setSubmittedForm(null);
     setShowForm(true);
     setChart(null);
     setReading(null);
@@ -240,6 +245,7 @@ export function FateApp() {
     portraitKeyRef.current = key;
     setPortrait(null);
     setPortraitStatus("loading");
+    setPortraitError("");
     try {
       const response = await fetch(`${BASE_PATH}/api/persona-image`, {
         method: "POST",
@@ -247,15 +253,19 @@ export function FateApp() {
         body: JSON.stringify({ dayMaster, gender: form.gender, signId, historyId: historyIdRef.current }),
         signal: abort.signal,
       });
-      if (!response.ok) throw new Error("IMAGE_UNAVAILABLE");
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(failure?.message ?? "图片服务暂时不可用，请稍后重试。");
+      }
       const data = await response.json() as { image?: string };
       if (!data.image?.startsWith("data:image/")) throw new Error("IMAGE_INVALID");
       if (abort.signal.aborted) return;
       setPortrait(data.image);
       setPortraitStatus("ready");
-    } catch {
+    } catch (error) {
       if (abort.signal.aborted) return;
       portraitKeyRef.current = null;
+      setPortraitError(error instanceof Error && error.message !== "IMAGE_INVALID" ? error.message : "人物画未能完成，请重试。");
       setPortraitStatus("failed");
     }
   }
@@ -284,6 +294,7 @@ export function FateApp() {
     portraitKeyRef.current = null;
     setPortrait(null);
     setPortraitStatus("idle");
+    setPortraitError("");
     const abort = new AbortController();
     abortRef.current = abort;
     setErrors({});
@@ -303,6 +314,7 @@ export function FateApp() {
     let chartReady = false;
     try {
       const input = payloadOf(form);
+      setSubmittedForm({ ...form });
       setShowForm(false);
       const chartResponse = await fetch(`${BASE_PATH}/api/chart`, {
         method: "POST",
@@ -569,14 +581,17 @@ export function FateApp() {
   const showIdentity = identityReady || (finalPhase && chart !== null);
   const showPersonaCard = Boolean(chart && chart.persona.status === "determined" && finalPhase && portraitStatus === "ready" && portrait);
   const showFortune = fortuneReady || (finalPhase && chart !== null);
-  const birthCity = CITIES.find((city) => city.id === form.cityId);
-  const birthProvince = PROVINCES.find((province) => province.code === form.provinceCode);
+  const resultForm = submittedForm ?? form;
+  const birthCity = CITIES.find((city) => city.id === resultForm.cityId);
+  const birthProvince = PROVINCES.find((province) => province.code === resultForm.provinceCode);
   const birthPlaceLabel = birthCity
     ? [birthProvince?.name, birthCity.name].filter(Boolean).join(" · ") || birthCity.name
     : "列表外地点（手动选择时区）";
-  const birthZoneLabel = chart?.timeBasis.birthTimeZone === "Asia/Shanghai" ? "北京时间"
-    : chart?.timeBasis.birthTimeZone === "Asia/Urumqi" ? "新疆时间"
-      : chart?.timeBasis.birthTimeZone ?? "";
+  const birthZone = chart?.timeBasis.birthTimeZone ?? resultForm.timeZone;
+  const birthZoneLabel = birthZone === "Asia/Shanghai" ? "北京时间" : birthZone === "Asia/Urumqi" ? "新疆时间" : birthZone;
+  const dateLabel = `${resultForm.calendar === "solar" ? "公历" : "农历"} ${resultForm.year}年${resultForm.isLeapMonth && resultForm.calendar === "lunar" ? "闰" : ""}${resultForm.month}月${resultForm.day}日`;
+  const timeLabel = resultForm.precision === "minute" ? resultForm.timeValue : resultForm.precision === "shichen" ? findShichen(resultForm.shichen)?.label ?? "时辰待确认" : "出生时间不清楚";
+  const focusLabel = { general: "整体解读", career: "事业与学习", relationship: "感情与人际", finance: "财务与积累" }[resultForm.focus];
 
   return (
     <main className="shell" id="main">
@@ -605,11 +620,20 @@ export function FateApp() {
           <button type="button" className="outline-button" onClick={editBirth}>修改出生信息 <span aria-hidden="true">↗</span></button>
         </div>
       )}
-      {chart && !showForm ? <div className="result-birthplace">
-        <div><span>出生地</span><strong>{birthPlaceLabel}</strong></div>
-        <div><span>采用的出生时区</span><strong>{birthZoneLabel}</strong></div>
-        <p>出生地用于换算出生时刻，进而计算八字与太阳星座；同一时区的城市计算结果相同。</p>
-      </div> : !showForm ? <div className="result-birthplace birthplace-placeholder" aria-label="出生地正在核算"><span>出生地与时区正在核算</span></div> : null}
+      {!showForm ? <section className="result-input" aria-label="本次输入的出生信息">
+        <p className="result-input-title">本次输入 · 请核对出生信息</p>
+        <div className="result-input-grid">
+          <div><span>出生日期</span><strong>{dateLabel}</strong></div>
+          <div><span>出生时间</span><strong>{timeLabel}</strong></div>
+          <div><span>排盘性别</span><strong>{resultForm.gender === "male" ? "男" : "女"}</strong></div>
+          <div><span>出生地</span><strong>{birthPlaceLabel}</strong></div>
+          <div><span>采用时区</span><strong>{birthZoneLabel}</strong></div>
+          <div><span>关注方向</span><strong>{focusLabel}</strong></div>
+        </div>
+        {chart ? <p className="result-input-pillars"><span>排出的八字</span><strong>{[chart.bazi.year.value, chart.bazi.month.value, chart.bazi.day.value, chart.bazi.time.value].map((pillar) => pillar ?? "待确认").join(" · ")}</strong></p> : null}
+        {resultForm.question.trim() ? <p className="result-input-question"><span>特别想了解</span>{resultForm.question.trim()}</p> : null}
+        {chart?.persona.status === "determined" && portraitStatus !== "idle" ? <p className={`portrait-progress portrait-progress-${portraitStatus}`} role="status">{portraitStatus === "loading" ? <span className="portrait-spinner" aria-hidden="true" /> : null}{portraitStatus === "loading" ? "国风人格卡绘制中，解读可先看" : portraitStatus === "failed" ? `人物卡暂未生成：${portraitError || "请在结果末尾重试。"}` : "国风人格卡已完成，可在结果末尾查看"}</p> : null}
+      </section> : null}
       {!showForm && !["idle", "done", "failed", "cancelled"].includes(phase) ? (
         <ThinkingPanel
           phaseLabel={PHASE_LABEL[phase]}
@@ -720,7 +744,7 @@ export function FateApp() {
             {chart.limitations.map((item) => <p key={item}>{item}</p>)}
           </details>
           {showPersonaCard && portrait ? <PersonaCard card={cardOf(chart, sentence)} artwork={portrait} />
-            : <LoadingPortrait status={chart.persona.status !== "determined" && finalPhase ? "暂无可用人物卡" : portraitStatus === "failed" ? "人物卡暂未生成" : finalPhase ? "正在绘制人物卡" : "人物卡将在解读完成后呈现"} onRetry={portraitStatus === "failed" && finalPhase ? () => void generatePortrait(chart) : undefined} />}
+            : <LoadingPortrait status={chart.persona.status !== "determined" && finalPhase ? "暂无可用人物卡" : portraitStatus === "failed" ? portraitError || "人物卡暂未生成" : portraitStatus === "loading" ? "正在绘制人物卡" : "人物卡将在解读完成后呈现"} loading={portraitStatus === "loading"} onRetry={portraitStatus === "failed" && finalPhase ? () => void generatePortrait(chart) : undefined} />}
           <div className="actions">
             {identityReady || fortuneReady ? <button type="button" className="quiet" onClick={() => { const missing: ReadingTaskId[] = []; if (identityAvailable && !identityReady) missing.push("identity"); if (fortuneAvailable && !fortuneReady) missing.push("fortune"); void navigator.clipboard.writeText(copyReport(chart, reading, annualYear ?? chart.annuals.currentYear, missing)).catch(() => setMessage("复制失败，请检查浏览器剪贴板权限。")); }}>复制解读</button> : null}
             {showPersonaCard ? <button type="button" className="quiet" disabled={cardExporting} onClick={() => void saveCard()}>{cardExporting ? "正在准备图片…" : "保存人格卡"}</button> : null}
@@ -737,7 +761,7 @@ export function FateApp() {
         <LoadingSection marker="运" title="当前大运" kind="luck" />
         <LoadingSection marker="年" title="年度流年" kind="annual" />
         <LoadingSection marker="据" title="排盘依据" kind="basis" />
-        <LoadingPortrait status="正在准备人物卡" />
+        <LoadingPortrait status="正在准备人物卡" loading />
       </div> : null}
       {cardPreview ? <div className="card-preview" role="dialog" aria-modal="true" aria-label="保存人格卡图片">
         <button type="button" className="card-preview-backdrop" aria-label="关闭图片预览" onClick={() => setCardPreview(null)} />
