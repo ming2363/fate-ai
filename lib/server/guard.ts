@@ -70,6 +70,6 @@ export function readOrCreateSession(request: Request): { readonly id: string; re
   if (matched?.[1]) return { id: matched[1], cookie: null };
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   const id = [...bytes].map((item) => item.toString(16).padStart(2, "0")).join("");
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return { id, cookie: `fate_sid=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1800${secure}` };
+  const secure = request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return { id, cookie: `fate_sid=${id}; HttpOnly; SameSite=Lax; Path=${process.env.NEXT_PUBLIC_BASE_PATH || "/"}; Max-Age=1800${secure}` };
 }

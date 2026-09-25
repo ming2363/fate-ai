@@ -17,10 +17,12 @@ import { copyReport } from "@/lib/shared/copy-report";
 import { annualStatusMessage, readableMoment } from "@/lib/shared/display";
 import { birthInputSchema, type BirthInput } from "@/lib/shared/schemas";
 import { parseSseBlock } from "@/lib/shared/sse";
+import { createRequestId } from "@/lib/shared/request-id";
 import { appendThinking } from "@/lib/shared/thinking";
 import { SITE_NAME } from "@/lib/shared/versions";
 
 type Phase = "idle" | "charting" | "waiting" | "thinking" | "answering" | "validating" | "done" | "failed" | "cancelled";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const PHASE_LABEL: Record<Phase, string> = {
   idle: "等待填写",
@@ -213,7 +215,7 @@ export function FateApp() {
     setPortrait(null);
     setPortraitStatus("loading");
     try {
-      const response = await fetch("/api/persona-image", {
+      const response = await fetch(`${BASE_PATH}/api/persona-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dayMaster, gender: form.gender, signId }),
@@ -271,7 +273,7 @@ export function FateApp() {
     try {
       const input = payloadOf(form);
       setShowForm(false);
-      const chartResponse = await fetch("/api/chart", {
+      const chartResponse = await fetch(`${BASE_PATH}/api/chart`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
@@ -309,7 +311,7 @@ export function FateApp() {
       }
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (localSeq !== seq.current) return;
-      setMessage("网络中断，排盘结果如已返回会保留。可以重试。");
+      setMessage("解读未能完成，排盘结果如已返回会保留。可以重试。");
       if (!chartReady) setShowForm(true);
       setLivePhase(chartReady ? "failed" : "idle");
     }
@@ -317,10 +319,10 @@ export function FateApp() {
 
   async function streamReading(input: BirthInput, facts: ChartFacts, abort: AbortController, localSeq: number, requestedTasks?: readonly ReadingTaskId[]) {
     setLivePhase("waiting");
-    const requestId = crypto.randomUUID();
+    const requestId = createRequestId();
     requestIdRef.current = requestId;
     seenSeq.current = new Set();
-    const response = await fetch("/api/reading", {
+    const response = await fetch(`${BASE_PATH}/api/reading`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -481,7 +483,7 @@ export function FateApp() {
       let fresh = chart;
       if (Date.now() - Date.parse(chart.asOfUtc) > 4 * 60_000) {
         setLivePhase("charting");
-        const response = await fetch("/api/chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal: abort.signal });
+        const response = await fetch(`${BASE_PATH}/api/chart`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal: abort.signal });
         const body = await response.json() as unknown;
         if (!response.ok || !isChart(body)) throw new Error("REFRESH_CHART_FAILED");
         fresh = body;
@@ -547,7 +549,7 @@ export function FateApp() {
       {showForm ? (
         <div className="entry">
           <section className="hero" aria-labelledby="intro-title">
-            <Image src="/ink-still-life.png" alt="" fill priority sizes="(max-width: 700px) 100vw, 1200px" className="hero-image" />
+            <Image src={`${BASE_PATH}/ink-still-life.png`} alt="" fill priority sizes="(max-width: 700px) 100vw, 1200px" className="hero-image" />
             <div className="hero-copy">
               <p className="eyebrow"><span className="eyebrow-line" /> 知命 · 一纸自观</p>
               <h1 id="intro-title">生辰入纸，<br /><em>见字如你。</em></h1>
