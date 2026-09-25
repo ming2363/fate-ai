@@ -1,0 +1,15 @@
+# Private environment files
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+out
+dist
+coverage
+*.tsbuildinfo
+.DS_Store
+.agents/
+.omo/
+.playwright-mcp/
