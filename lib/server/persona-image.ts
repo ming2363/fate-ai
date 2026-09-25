@@ -3,7 +3,7 @@ import { signById, type SignId } from "@/lib/shared/signs";
 import { zodiacProfile } from "@/lib/shared/zodiac-reading";
 import { HttpError } from "@/lib/server/errors";
 
-const IMAGE_URL = "https://model-api.maas.com.cn/v1/images/generations";
+const IMAGE_URL = "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export function personaImagePrompt(dayMaster: DayMaster, gender: "male" | "female", signId: SignId | null): string {
@@ -17,19 +17,15 @@ export async function generatePersonaImage(dayMaster: DayMaster, gender: "male" 
   const response = await fetchImpl(IMAGE_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "wan2.7-image-pro", prompt: personaImagePrompt(dayMaster, gender, signId), size: "1024x1536", n: 1 }),
+    body: JSON.stringify({ model: "wan2.7-image-pro", input: { messages: [{ role: "user", content: [{ text: personaImagePrompt(dayMaster, gender, signId) }] }] }, parameters: { size: "1024*1536", n: 1, watermark: false } }),
     signal,
     cache: "no-store",
   });
   if (!response.ok) throw new HttpError(response.status === 429 ? 503 : 502, response.status === 429 ? "IMAGE_BUSY" : "IMAGE_MODEL_FAILED", response.status === 429 ? "绘画服务正忙，请稍后重试。" : "绘画服务暂时没有完成，请稍后重试。", true);
-  const payload = await response.json() as { data?: { url?: string; b64_json?: string | null }[] };
-  const item = payload.data?.[0];
-  if (item?.b64_json) {
-    if (item.b64_json.length > MAX_IMAGE_BYTES * 1.4) throw new Error("IMAGE_TOO_LARGE");
-    return `data:image/png;base64,${item.b64_json}`;
-  }
-  if (!item?.url) throw new Error("IMAGE_MISSING");
-  const url = new URL(item.url);
+  const payload = await response.json() as { output?: { choices?: { message?: { content?: { image?: string }[] } }[] } };
+  const imageUrl = payload.output?.choices?.[0]?.message?.content?.find((item) => item.image)?.image;
+  if (!imageUrl) throw new Error("IMAGE_MISSING");
+  const url = new URL(imageUrl);
   if (url.protocol !== "https:" || !url.hostname.endsWith(".aliyuncs.com")) throw new Error("IMAGE_HOST_INVALID");
   const image = await fetchImpl(url, { signal, redirect: "error", cache: "no-store" });
   const mime = image.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
