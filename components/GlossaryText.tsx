@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { cleanReadingText } from "@/lib/shared/reading-text";
 
@@ -57,9 +57,26 @@ const BRANCH_CLASH = /^[子丑寅卯辰巳午未申酉戌亥]{2}冲$/;
 export function GlossaryText({ text }: { readonly text: string }) {
   const cleaned = cleanReadingText(text);
   const popupId = useId();
-  const [open, setOpen] = useState<{ term: string; top: number; left: number } | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popupRef = useRef<HTMLSpanElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !popupRef.current) return;
+    const trigger = triggerRef.current.getBoundingClientRect();
+    const popup = popupRef.current;
+    const edge = 12;
+    const gap = 8;
+    const heightLimit = Math.min(360, window.innerHeight * 0.5);
+    const below = window.innerHeight - trigger.bottom - gap - edge;
+    const above = trigger.top - gap - edge;
+    const placeBelow = below >= Math.min(heightLimit, popup.scrollHeight) || below >= above;
+    popup.style.maxHeight = `${Math.max(0, Math.min(heightLimit, placeBelow ? below : above))}px`;
+    const size = popup.getBoundingClientRect();
+    const top = placeBelow ? trigger.bottom + gap : trigger.top - size.height - gap;
+    popup.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - size.height - edge))}px`;
+    popup.style.left = `${Math.max(edge, Math.min(trigger.left, window.innerWidth - size.width - edge))}px`;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,10 +86,12 @@ export function GlossaryText({ text }: { readonly text: string }) {
     };
     const close = () => setOpen(null);
     document.addEventListener("pointerdown", dismiss);
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { close(); triggerRef.current?.focus(); } };
     document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", close, true);
-    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", onKeyDown); window.removeEventListener("scroll", close, true); };
+    const onScroll = (event: Event) => { if (!popupRef.current?.contains(event.target as Node)) close(); };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", close);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", onKeyDown); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", close); };
   }, [open]);
 
   const pieces: ReactNode[] = [];
@@ -85,19 +104,15 @@ export function GlossaryText({ text }: { readonly text: string }) {
     if (seen.has(term)) pieces.push(term);
     else {
       seen.add(term);
-      pieces.push(<button type="button" className="glossary-term" key={`${term}-${index}`} aria-label={`查看${term}的解释`} aria-expanded={open?.term === term} aria-controls={open?.term === term ? popupId : undefined} onClick={(event) => {
-        if (open?.term === term) { setOpen(null); return; }
-        const rect = event.currentTarget.getBoundingClientRect();
+      pieces.push(<button type="button" className="glossary-term" key={`${term}-${index}`} aria-label={`查看${term}的解释`} aria-expanded={open === term} aria-controls={open === term ? popupId : undefined} onClick={(event) => {
+        if (open === term) { setOpen(null); return; }
         triggerRef.current = event.currentTarget;
-        const width = Math.min(330, window.innerWidth - 24);
-        const height = Math.min(360, window.innerHeight * 0.5);
-        const top = rect.bottom + height + 12 <= window.innerHeight ? rect.bottom + 8 : Math.max(12, rect.top - height - 8);
-        setOpen({ term, top, left: Math.max(12, Math.min(rect.left - 90, window.innerWidth - width - 12)) });
+        setOpen(term);
       }}>{term}</button>);
     }
     last = index + term.length;
   }
   if (last < cleaned.length) pieces.push(cleaned.slice(last));
-  const explanation = open ? EXPLANATIONS[open.term] ?? (GANZHI.test(open.term) ? `“${open.term[0]}”是天干，“${open.term[1]}”是地支；合起来是一组干支。它可用来标记年、月、日、时或一段大运，具体指什么要看它在句子中的位置。` : BRANCH_CLASH.test(open.term) ? `“${open.term[0]}”与“${open.term[1]}”是两个地支，在传统规则中属于相冲的一组。这里说的是命盘里的对应关系，不能直接推断现实中发生了什么事。` : "这是传统排盘中的术语，需要结合它在句子里的位置理解。") : "";
-  return <>{pieces}{open ? <span id={popupId} ref={popupRef} className="glossary-popover" role="tooltip" aria-live="polite" style={{ top: open.top, left: open.left }}><small>术语小注</small><strong>{open.term}</strong><span>{explanation}</span></span> : null}</>;
+  const explanation = open ? EXPLANATIONS[open] ?? (GANZHI.test(open) ? `“${open[0]}”是天干，“${open[1]}”是地支；合起来是一组干支。它可用来标记年、月、日、时或一段大运，具体指什么要看它在句子中的位置。` : BRANCH_CLASH.test(open) ? `“${open[0]}”与“${open[1]}”是两个地支，在传统规则中属于相冲的一组。这里说的是命盘里的对应关系，不能直接推断现实中发生了什么事。` : "这是传统排盘中的术语，需要结合它在句子里的位置理解。") : "";
+  return <>{pieces}{open ? <span id={popupId} ref={popupRef} className="glossary-popover" role="dialog" aria-label={`${open}的解释`}><span className="glossary-popover-head"><small>术语小注</small><button type="button" className="glossary-close" aria-label="关闭术语解释" onClick={() => { setOpen(null); triggerRef.current?.focus(); }}><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 4l12 12M16 4L4 16" /></svg></button></span><strong>{open}</strong><span>{explanation}</span></span> : null}</>;
 }

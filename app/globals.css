@@ -235,7 +235,10 @@ textarea { min-height: 86px; resize: vertical; }
 .glossary-term:hover, .glossary-term[aria-expanded="true"] { background: #e5ebe3; text-decoration-color: var(--green); }
 .glossary-term:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; }
 .glossary-popover { position: fixed; z-index: 80; display: grid; gap: 7px; width: min(330px, calc(100vw - 24px)); max-height: min(360px, 50vh); overflow-y: auto; padding: 16px 18px 18px; border: 1px solid var(--line); border-top: 2px solid var(--green); background: #fffdf8; box-shadow: 0 10px 28px #312b2026; color: var(--ink); font: 15px/1.75 var(--sans); white-space: normal; }
+.glossary-popover-head { display: flex; align-items: center; justify-content: space-between; margin: -10px -12px -8px 0; }
 .glossary-popover small { color: var(--seal); font: 600 11px/1.4 var(--sans); letter-spacing: .13em; }
+.glossary-close { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--green); }
+.glossary-close:hover { background: #e9eee8; }
 .glossary-popover strong { color: var(--green); font: 21px/1.35 var(--serif); }
 .analysis-basis ul { margin: 8px 0 18px; padding-left: 22px; }
 .analysis-basis li { margin-top: 10px; font-size: 14px; line-height: 1.8; }
