@@ -1,0 +1,22 @@
+[Unit]
+Description=Fate AI report worker
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fate
+Group=fate
+WorkingDirectory=/opt/fate-ai/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/fate-ai/runtime.env
+ExecStart=/usr/bin/node --experimental-transform-types scripts/worker.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

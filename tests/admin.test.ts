@@ -8,11 +8,21 @@ vi.mock("@/lib/server/db", () => ({ database: () => ({ query, execute, getConnec
 
 import { GET as stats } from "@/app/api/admin/stats/route";
 import { GET as history } from "@/app/api/admin/history/route";
+import { GET as logs } from "@/app/api/admin/logs/route";
 import { openRegionLookup } from "@/lib/server/ip-region";
 
 const token = "test-admin-token-".repeat(3);
 const request = (queryString = "") => new Request(`http://localhost/api/admin/history${queryString}`, { headers: { authorization: `Bearer ${token}` } });
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
+it("日志查询需要管理员权限，筛选使用参数绑定并按游标分页", async () => {
+  vi.stubEnv("ADMIN_API_TOKEN", token);
+  expect((await logs(new Request("http://localhost/api/admin/logs"))).status).toBe(401);
+  expect((await logs(request("?limit=101"))).status).toBe(422);
+  query.mockResolvedValueOnce([[{ id: "12", metadata_json: { visitor: { device: "mobile" } } }, { id: "11" }]]);
+  const response = await logs(request("?device=mobile&beforeId=15&limit=1"));
+  expect(await response.json()).toMatchObject({ nextBeforeId: "12", items: [{ id: "12" }] });
+  expect(query.mock.calls[0]?.[1]).toEqual(["mobile", "15", 2]);
+});
 
 it("管理员接口默认关闭，错误凭证不查询数据库", async () => {
   vi.stubEnv("ADMIN_API_TOKEN", "");
@@ -31,7 +41,7 @@ it("统计保留未知地区，解读重试不会重复计算历史条数", asyn
     .mockResolvedValueOnce([[{ status: "complete", count: 1 }, { status: "charted", count: 1 }]])
     .mockResolvedValueOnce([[{ event: "page_view", outcome: "success", count: 3 }, { event: "reading", outcome: "success", count: 4 }]])
     .mockResolvedValueOnce([[{ ip: null, visits: "3", readingCalls: "4" }]])
-    .mockResolvedValueOnce([[{ ip: null, count: 2 }]]);
+    .mockResolvedValueOnce([[{ ip: null, count: 2 }]]).mockResolvedValue([[]]);
   const response = await stats(request());
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("no-store");

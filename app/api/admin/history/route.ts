@@ -20,10 +20,10 @@ export async function GET(request: Request): Promise<Response> {
     const { id, limit, offset } = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
     const db = database();
     if (id) {
-      const [rows] = await db.execute<RowDataPacket[]>("SELECT id, status, title, input_json, chart_json, reading_json, image_data IS NOT NULL AS has_image, created_at, updated_at FROM fate_reading_history WHERE id = ?", [id]);
+      const [rows] = await db.execute<RowDataPacket[]>("SELECT id, status, title, input_json, chart_json, reading_json, task_state, schema_version, image_data IS NOT NULL AS has_image, created_at, updated_at FROM fate_reading_history WHERE id = ?", [id]);
       return rows[0] ? jsonResponse(rows[0]) : jsonResponse({ code: "NOT_FOUND" }, 404);
     }
-    const [rows] = await db.query<RowDataPacket[]>("SELECT id, status, title, input_json, image_data IS NOT NULL AS has_image, created_at, updated_at FROM fate_reading_history ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", [limit + 1, offset]);
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, status, title, input_json, task_state->'$.visitor' AS visitor, image_data IS NOT NULL AS has_image, created_at, updated_at FROM fate_reading_history ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", [limit + 1, offset]);
     return jsonResponse({ items: rows.slice(0, limit), nextOffset: rows.length > limit ? offset + limit : null });
   } catch (error) { return errorResponse(error); }
 }

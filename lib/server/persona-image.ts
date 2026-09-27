@@ -9,7 +9,7 @@ const IMAGE_URL = "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal
 export const PERSONA_IMAGE_MODEL = "qwen-image-3.0-pro";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
-async function imageFetch(url: string | URL, init: RequestInit, stage: "generate" | "download", fetchImpl: typeof fetch): Promise<Response> {
+async function imageFetch(url: string | URL, init: RequestInit, stage: "generate" | "download", fetchImpl: typeof fetch, allowRetry = true): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fetchImpl(url, init);
@@ -19,7 +19,7 @@ async function imageFetch(url: string | URL, init: RequestInit, stage: "generate
       const code = typeof cause?.code === "string" ? cause.code.slice(0, 64) : "NETWORK_ERROR";
       console.error(JSON.stringify({ phase: `portrait-${stage}`, model: PERSONA_IMAGE_MODEL, attempt: attempt + 1, errorCode: code }));
       // Retry POST only when the connection was never established, avoiding duplicate paid generations.
-      if (attempt === 0 && (stage === "download" || ["EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"].includes(code))) continue;
+      if (allowRetry && attempt === 0 && (stage === "download" || ["EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"].includes(code))) continue;
       throw new HttpError(502, stage === "generate" ? "IMAGE_CONNECTION_FAILED" : "IMAGE_DOWNLOAD_FAILED", stage === "generate" ? "绘画服务连接失败，请稍后重试。" : "人物画已生成，但下载失败，请稍后重试。", true);
     }
   }
@@ -66,18 +66,19 @@ export function personaImagePrompt(dayMaster: DayMaster, gender: "male" | "femal
   ].filter(Boolean).join("\n");
 }
 
-export async function generatePersonaImage(dayMaster: DayMaster, gender: "male" | "female", signId: SignId | null, apiKey: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function generatePersonaImage(dayMaster: DayMaster, gender: "male" | "female", signId: SignId | null, apiKey: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch, options?: { onGenerated?: () => Promise<void>; singleAttempt?: boolean }): Promise<string> {
   const response = await imageFetch(IMAGE_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: PERSONA_IMAGE_MODEL, input: { messages: [{ role: "user", content: [{ text: personaImagePrompt(dayMaster, gender, signId) }] }] }, parameters: { size: "1024*1536", n: 1, watermark: false } }),
     signal,
     cache: "no-store",
-  }, "generate", fetchImpl);
+  }, "generate", fetchImpl, !options?.singleAttempt);
   if (!response.ok) throw new HttpError(response.status === 429 ? 503 : 502, response.status === 429 ? "IMAGE_BUSY" : "IMAGE_MODEL_FAILED", response.status === 429 ? "绘画服务正忙，请稍后重试。" : "绘画服务暂时没有完成，请稍后重试。", true);
   const payload = await response.json() as { output?: { choices?: { message?: { content?: { image?: string }[] } }[] } };
   const imageUrl = payload.output?.choices?.[0]?.message?.content?.find((item) => item.image)?.image;
   if (!imageUrl) throw new Error("IMAGE_MISSING");
+  await options?.onGenerated?.();
   const url = new URL(imageUrl);
   if (url.protocol !== "https:" || !url.hostname.endsWith(".aliyuncs.com")) throw new Error("IMAGE_HOST_INVALID");
   const image = await imageFetch(url, { signal, redirect: "error", cache: "no-store" }, "download", fetchImpl);

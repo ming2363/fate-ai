@@ -14,3 +14,6 @@ data/ip-region/*.xdb
 .agents/
 .omo/
 .playwright-mcp/
+
+# Private MBTI cache and local runtime data
+.data/

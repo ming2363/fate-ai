@@ -1,0 +1,51 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { Temporal } from "@js-temporal/polyfill";
+import { initializeSession, requireSession } from "@/lib/server/report-session";
+import { buildChart } from "@/lib/server/chart";
+import { blankReading } from "@/lib/shared/blank-reading";
+import { initialTasks, mergeReading, scopeYear } from "@/lib/shared/report";
+import { budgetDay, textReservation } from "@/lib/server/call-ledger";
+import { tryCopyText } from "@/lib/shared/copy-report";
+afterEach(() => vi.unstubAllEnvs());
+it("copy falls back when HTTP clipboard is absent or permission is denied", async () => {
+  expect(await tryCopyText("报告")).toBe(false);
+  expect(await tryCopyText("报告", { writeText: async () => { throw new Error("denied"); } })).toBe(false);
+  const writeText = vi.fn(async () => {});
+  expect(await tryCopyText("报告", { writeText })).toBe(true);
+  expect(writeText).toHaveBeenCalledWith("报告");
+});
+it("signed anonymous session rejects forged/old/expired cookies and scopes its path", () => {
+  vi.stubEnv("REPORT_SESSION_SECRET", "local-unit-secret-".repeat(3));
+  vi.stubEnv("NEXT_PUBLIC_BASE_PATH", "/fate");
+  const request = new Request("https://example.com/fate/api/session");
+  const session = initializeSession(request);
+  expect(session.cookie).toContain("HttpOnly; SameSite=Lax; Path=/fate; Max-Age=604800; Secure");
+  const cookie = session.cookie!.split(";")[0]!;
+  expect(requireSession(new Request(request, { headers: { cookie } }))).toBe(session.id);
+  expect(() => requireSession(new Request(request, { headers: { cookie: cookie.replace(session.id, "b".repeat(32)) } }))).toThrow();
+  expect(() => requireSession(new Request(request, { headers: { cookie: "fate_sid=" + session.id } }))).toThrow();
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 8 * 86400_000);
+  expect(() => requireSession(new Request(request, { headers: { cookie } }))).toThrow();
+  vi.restoreAllMocks();
+});
+it("only current year queues initially; independent merges never discard other modules", () => {
+  const chart = buildChart({ calendar: "lunar", birthDate: { year: 1999, month: 11, day: 15, isLeapMonth: false }, birthTime: { precision: "shichen", value: null, shichen: "si" }, genderForCalculation: "male", birthPlace: { cityId: null, timeZone: "Asia/Shanghai", offsetChoice: null } }, Temporal.Instant.from("2026-09-27T00:00:00Z"));
+  const tasks = initialTasks(chart, true);
+  expect(tasks.annual_2025?.status).toBe("idle");
+  expect(tasks.fortune_current?.status).toBe("queued");
+  expect(scopeYear(chart, 2027).reportYears).toEqual([2027]);
+  expect(scopeYear(chart, 2027).allowedTopics.currentLuck).toBe(false);
+  const base = blankReading(chart);
+  const identity = { ...base.personality, summary: { text: "已验证的人格", basisRefs: ["natal.day_master"] } };
+  const first = mergeReading(base, { personality: identity }, "identity");
+  const second = mergeReading(first, { overview: { text: "当年总览", basisRefs: [] }, annualReadings: [base.annualReadings[1]!] }, "fortune_current");
+  const last = mergeReading(second, { overview: { text: "不应覆盖", basisRefs: [] }, annualReadings: [base.annualReadings[2]!] }, "annual_2027");
+  expect(last.personality).toEqual(identity);
+  expect(last.overview.text).toBe("当年总览");
+  expect(last.annualReadings).toHaveLength(3);
+});
+it("budget dates use Beijing midnight and reserve full output capacity", () => {
+  expect(budgetDay(new Date("2026-09-27T15:59:59Z"))).toBe("2026-09-27");
+  expect(budgetDay(new Date("2026-09-27T16:00:00Z"))).toBe("2026-09-28");
+  expect(textReservation(10000)).toBeGreaterThanOrEqual((10000 * 2 + 131072 * 8) / 1e6);
+});

@@ -441,3 +441,54 @@ details summary { min-height: 42px; color: var(--green); font-size: 14px; }
   html { scroll-behavior: auto; }
   * { transition-duration: 0s !important; animation: none !important; }
 }
+.result-nav { position: sticky; top: 0; z-index: 25; display: flex; justify-content: center; gap: 8px; padding: 8px; margin-block: 18px; background: #f5f0e6f5; border-block: 1px solid var(--line); backdrop-filter: blur(8px); }
+.result-nav a { display: grid; place-items: center; min-height: 44px; padding: 8px 18px; color: var(--green); text-decoration: none; font-size: 15px; }
+.result-nav a:hover, .result-nav a:focus-visible { color: var(--seal); background: #e8dfcd; }
+.result-stack > *, #personality, #zodiac, #luck, #portrait { scroll-margin-top: 78px; }
+.report-progress { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0; font-size: 14px; color: var(--green); }
+.report-progress > span:nth-child(2) { flex: 1; min-width: 180px; }
+.result-input .input-summary { color: var(--ink); line-height: 1.8; margin: 6px 0; }
+.reading-detail > summary, details > summary { display: list-item; padding-block: 12px; min-height: 44px; cursor: pointer; }
+.feedback { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 15px; color: var(--muted); font-size: 12px; }
+.feedback button { border: 1px solid var(--line); background: transparent; color: var(--green); padding: 8px 12px; min-height: 44px; font: inherit; }
+.feedback button:active { background: #e8dfcd; }
+.report-followups article { border-bottom: 1px solid var(--line); padding-bottom: 18px; }
+.report-followups form { display: grid; gap: 12px; margin-top: 20px; }
+.report-followups textarea { width: 100%; min-height: 100px; font: 16px/1.7 var(--sans); }
+.nickname-option { display: flex; align-items: center; gap: 10px; padding: 12px 0; min-height: 44px; }
+.nickname-option input { width: 20px; height: 20px; }
+.report-dialog { width: min(720px, calc(100vw - 24px)); max-height: 90dvh; overflow: auto; padding: 0; border: 1px solid var(--line); color: var(--ink); background: var(--paper, #f5f0e6); }
+.report-dialog::backdrop { background: #1d2927aa; }
+.dialog-body { padding: 20px; }
+.dialog-body header { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.dialog-close { width: 44px; height: 44px; border: none; background: transparent; color: var(--green); font-size: 30px; }
+.dialog-body textarea { width: 100%; padding: 12px; font: 16px/1.8 var(--sans); }
+.export-preview { display: block; width: 100%; height: auto; }
+.portrait-section { width: 100%; grid-column: 1 / -1; }
+/* Summary layouts keep occupied space close to the eventual visible content. */
+.result-placeholder-personality, .personality-reading.ready,
+.result-placeholder-zodiac, .zodiac-reading,
+.result-placeholder-luck, .luck-reading.ready,
+.result-placeholder-annual, .annual-reading.ready,
+.reading.mbti-reading { min-height: 0; }
+.result-placeholder .placeholder-content { min-height: 150px; }
+.result-stack .analysis-section { max-width: none; }
+.result-stack .result-actions { position: sticky; bottom: 0; z-index: 20; background: #f5f0e6f5; padding: 12px 0 max(12px, env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; gap: 10px; }
+.result-actions button, .result-actions a { min-height: 44px; flex: 1; text-align: center; text-decoration: none; }
+.report-secondary-actions { grid-column: 1 / -1; }
+@media (max-width: 700px) {
+  .result-nav { justify-content: space-between; gap: 0; }
+  .result-nav a { padding-inline: 10px; }
+  .result-stack .result-actions { gap: 8px; }
+  .result-actions > button { flex: 1 1 40%; }
+  .report-dialog .dialog-body { padding: 15px; }
+  .result-intro h1 { font-size: clamp(27px, 7.5vw, 40px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portrait-spinner, .placeholder-lines span { animation: none !important; }
+  html { scroll-behavior: auto; }
+}
+.report-highlights { margin: 16px 0; padding-left: 24px; color: var(--seal); line-height: 1.85; }
+.report-highlights:empty { display: none; }
+.report-message { color: var(--seal); padding: 12px 0; }
+.report-followups { grid-column: 1 / -1; }

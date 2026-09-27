@@ -27,6 +27,18 @@ def main():
             result = json.load(response)
         if result.get("period", {}).get("date") != date:
             raise ValueError("Unexpected report period")
+        usage_request = urllib.request.Request(
+            "http://127.0.0.1:3100/fate/api/admin/metrics?date=" + date,
+            headers={"Authorization": request.get_header("Authorization")},
+        )
+        try:
+            with urllib.request.urlopen(usage_request, timeout=30) as response:
+                usage = json.load(response)
+            if usage.get("date") != date:
+                raise ValueError("Unexpected usage period")
+            result["usage"] = usage
+        except Exception:
+            result["usage"] = {"unavailable": True}
         print(json.dumps(result, ensure_ascii=False))
     except Exception:
         print("Daily statistics unavailable", file=sys.stderr)

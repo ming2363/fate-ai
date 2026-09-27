@@ -1,44 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { ZodError } from "zod";
 
 import { BirthForm, INITIAL_FORM, type FormState } from "@/components/BirthForm";
-import { daysInBirthMonth } from "@/components/BirthDatePicker";
 import { PersonaCard, PersonaSummary, type CardView } from "@/components/PersonaCard";
-import { ThinkingPanel } from "@/components/ThinkingPanel";
+import { useReport, reportRequest } from "@/components/useReport";
+import { activeTask } from "@/lib/shared/report";
+import { ReportDialog } from "@/components/ReportDialog";
 import { ZodiacPanel } from "@/components/ZodiacPanel";
 import { AnalysisBasis } from "@/components/AnalysisBasis";
 import { GlossaryText } from "@/components/GlossaryText";
 import { FestivalLabel, FestivalOrnaments } from "@/components/FestivalDecor";
 import { CITIES, PROVINCES } from "@/lib/shared/cities";
 import { findShichen } from "@/lib/shared/shichen";
-import type { ChartFacts, FortuneReading, IdentityReading, Reading, ReadingTaskId } from "@/lib/shared/chart-types";
-import { copyReport } from "@/lib/shared/copy-report";
+import type { ChartFacts, ReadingTaskId } from "@/lib/shared/chart-types";
+import { copyReport, tryCopyText } from "@/lib/shared/copy-report";
 import { annualStatusMessage, readableMoment } from "@/lib/shared/display";
 import { birthInputSchema, type BirthInput } from "@/lib/shared/schemas";
-import { parseSseBlock } from "@/lib/shared/sse";
-import { createRequestId } from "@/lib/shared/request-id";
-import { appendThinking } from "@/lib/shared/thinking";
-import { blankReading } from "@/lib/shared/blank-reading";
 import { SITE_NAME } from "@/lib/shared/versions";
 import type { FestivalTheme } from "@/lib/shared/festival";
 
+function taskLabel(key: string): string { return ({ identity: "人格与星座", fortune_current: "大运与当年流年", portrait: "国风人物画", mbti: "MBTI侧写" } as Record<string, string>)[key] ?? (key.startsWith("annual_") ? key.slice(7) + "年流年" : "报告追问"); }
+
 type Phase = "idle" | "charting" | "waiting" | "thinking" | "answering" | "validating" | "done" | "failed" | "cancelled";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-
-const PHASE_LABEL: Record<Phase, string> = {
-  idle: "等待填写",
-  charting: "正在排盘",
-  waiting: "等待模型响应",
-  thinking: "AI 思考中",
-  answering: "正在整理解读",
-  validating: "正在检查结果",
-  done: "解读完成",
-  failed: "解读未完成",
-  cancelled: "已取消生成",
-};
 
 function payloadOf(form: FormState): BirthInput {
   const selectedCity = CITIES.find((city) => city.id === form.cityId);
@@ -63,17 +50,6 @@ function payloadOf(form: FormState): BirthInput {
     },
   });
 }
-
-function isChart(value: unknown): value is ChartFacts {
-  return Boolean(value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === "chart.v1");
-}
-
-function isReading(value: unknown): value is Reading {
-  return Boolean(value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === "reading.v1");
-}
-
-type TaskPhase = "waiting" | "thinking" | "answering" | "validating" | "done" | "failed";
-const TASK_LABEL: Record<ReadingTaskId, string> = { identity: "人格与星座", fortune: "大运与流年" };
 
 function cardOf(chart: ChartFacts, sentence: string): CardView {
   const zodiacLabel = chart.zodiac.status === "determined" && chart.zodiac.sign
@@ -101,7 +77,7 @@ function luckYears(startLabel: string, endLabel: string): string {
 type PlaceholderKind = "overview" | "personality" | "zodiac" | "luck" | "annual" | "basis";
 
 function LoadingSection({ marker, title, kind }: { readonly marker: string; readonly title: string; readonly kind: PlaceholderKind }) {
-  const blocks = kind === "annual" ? 8 : kind === "luck" ? 6 : kind === "zodiac" ? 4 : kind === "personality" ? 2 : 1;
+  const blocks = 1;
   return <section className={`reading result-placeholder result-placeholder-${kind}`} aria-label={`${title}正在准备`} aria-busy="true">
     <h2><span className="idx">{marker}</span>{title}</h2>
     <p>正在准备这部分解读</p>
@@ -124,440 +100,80 @@ function LoadingPortrait({ status, loading = false, onRetry }: { readonly status
 }
 
 export function FateApp() {
+  const controller = useReport();
+  const { report } = controller;
   const [form, setForm] = useState(INITIAL_FORM);
-  const [submittedForm, setSubmittedForm] = useState<FormState | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offsetOptions, setOffsetOptions] = useState<string[]>([]);
-  const [chart, setChart] = useState<ChartFacts | null>(null);
-  const [reading, setReading] = useState<Reading | null>(null);
-  const [mbtiError, setMbtiError] = useState("");
-  const [mbtiPhase, setMbtiPhase] = useState("waiting");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [streamMode, setStreamMode] = useState<"unknown" | "single" | "parallel">("unknown");
-  const [announcement, setAnnouncement] = useState("");
-  const [thinking, setThinking] = useState("");
-  const [taskThinking, setTaskThinking] = useState<Record<ReadingTaskId, { text: string; truncated: boolean }>>({ identity: { text: "", truncated: false }, fortune: { text: "", truncated: false } });
-  const [taskPhase, setTaskPhase] = useState<Record<ReadingTaskId, TaskPhase>>({ identity: "waiting", fortune: "waiting" });
-  const [taskErrors, setTaskErrors] = useState<Partial<Record<ReadingTaskId, string>>>({});
-  const [truncated, setTruncated] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [elapsed, setElapsed] = useState("0:00");
   const [message, setMessage] = useState("");
   const [annualYear, setAnnualYear] = useState<number | null>(null);
-  const [showForm, setShowForm] = useState(true);
-  const [portrait, setPortrait] = useState<string | null>(null);
-  const [portraitStatus, setPortraitStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
-  const [portraitError, setPortraitError] = useState("");
   const [cardPreview, setCardPreview] = useState<string | null>(null);
+  const [copyPreview, setCopyPreview] = useState<string | null>(null);
   const [cardExporting, setCardExporting] = useState(false);
+  const [followup, setFollowup] = useState("");
   const [festival, setFestival] = useState<FestivalTheme | null>(null);
-  const seq = useRef(0);
-  const requestIdRef = useRef("");
-  const historyIdRef = useRef("");
-  const seenSeq = useRef(new Set<number>());
-  const abortRef = useRef<AbortController | null>(null);
-  const thinkingRef = useRef("");
-  const taskThinkingRef = useRef<Record<ReadingTaskId, string>>({ identity: "", fortune: "" });
-  const startedRef = useRef(0);
-  const phaseRef = useRef<Phase>("idle");
-  const portraitAbortRef = useRef<AbortController | null>(null);
-  const portraitKeyRef = useRef<string | null>(null);
-
+  useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(""), 6000); return () => clearTimeout(timer); }, [message]);
+  const chart = report?.chart ?? null;
+  const reading = report?.reading ?? null;
+  const showForm = !report;
+  const pendingTasks = Object.entries(report?.tasks ?? {}).filter(([, task]) => activeTask(task));
+  const phase: Phase = controller.busy ? "charting" : pendingTasks.length ? "thinking" : report ? "done" : "idle";
+  const taskPhase = { identity: report?.tasks.identity?.status === "completed" ? "done" : "waiting", fortune: report?.tasks.fortune_current?.status === "completed" ? "done" : "waiting" };
+  const taskErrors = { identity: report?.tasks.identity?.error, fortune: report?.tasks.fortune_current?.error };
+  const mbtiError = report?.tasks.mbti?.error ?? "";
+  const streamMode: string = "parallel";
+  const portrait = report?.imageVersion ? BASE_PATH + "/api/reports/" + report.id + "/image?v=" + report.imageVersion : null;
+  const portraitTask = report?.tasks.portrait;
+  const portraitStatus = activeTask(portraitTask) ? "loading" : portrait ? "ready" : portraitTask?.status === "failed" || portraitTask?.status === "interrupted" ? "failed" : "idle";
+  const portraitError = portraitTask?.error ?? "";
+  const announcement = pendingTasks.length ? "解读正在生成，已完成的部分可先阅读" : report ? "已完成本次生成" : "";
+  const submittedForm: FormState | null = report ? {
+    ...INITIAL_FORM, ...report.input, year: String(report.input.birthDate.year), month: String(report.input.birthDate.month), day: String(report.input.birthDate.day),
+    isLeapMonth: report.input.birthDate.isLeapMonth, precision: report.input.birthTime.precision === "second" ? "minute" : report.input.birthTime.precision,
+    timeValue: report.input.birthTime.value?.slice(0, 5) ?? "", shichen: report.input.birthTime.shichen ?? "wu", gender: report.input.genderForCalculation,
+    provinceCode: PROVINCES.find((p) => p.cities.some((c) => c.id === report.input.birthPlace.cityId))?.code ?? "other",
+    cityId: report.input.birthPlace.cityId ?? "", timeZone: report.input.birthPlace.timeZone, offsetChoice: report.input.birthPlace.offsetChoice ?? "", mbti: report.input.mbti ?? "",
+  } : null;
+  useEffect(() => { if (report) setAnnualYear((old) => old ?? report.chart.annuals.currentYear); }, [report]);
   useEffect(() => {
-    void fetch(`${BASE_PATH}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "page_view" }) }).catch(() => {});
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
-      try {
-        const response = await fetch(`${BASE_PATH}/api/festival`, { cache: "no-store" });
-        if (response.ok) {
-          const theme = await response.json() as FestivalTheme | null;
-          if (active) setFestival(theme);
-        }
-      } catch { /* Decoration never blocks the reading. */ }
-      if (active) {
-        const chinaTime = (Date.now() + 8 * 60 * 60 * 1000) % 86_400_000;
-        timer = setTimeout(() => void refresh(), 86_400_000 - chinaTime + 1000);
-      }
-    };
-    void refresh();
-    return () => { active = false; clearTimeout(timer); };
+    let live = true;
+    void fetch(BASE_PATH + "/api/festival", { cache: "no-store" }).then((r) => r.json()).then((value) => { if (live) setFestival(value); }).catch(() => {});
+    return () => { live = false; };
   }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (startedRef.current === 0 || ["done", "idle", "failed", "cancelled"].includes(phaseRef.current)) return;
-      const seconds = Math.floor((Date.now() - startedRef.current) / 1000);
-      setElapsed(`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!showForm) window.scrollTo(0, 0);
-  }, [showForm]);
-
-  useEffect(() => {
-    if (!cardPreview) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setCardPreview(null); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [cardPreview]);
-
-  function setLivePhase(next: Phase) {
-    phaseRef.current = next;
-    setPhase(next);
-    setAnnouncement(PHASE_LABEL[next]);
-  }
-
-  function editBirth() {
-    historyIdRef.current = "";
-    setCardPreview(null);
-    seq.current += 1;
-    abortRef.current?.abort();
-    portraitAbortRef.current?.abort();
-    portraitKeyRef.current = null;
-    setPortrait(null);
-    setPortraitStatus("idle");
-    setPortraitError("");
-    setSubmittedForm(null);
-    setShowForm(true);
-    setChart(null);
-    setReading(null);
-    setMbtiError("");
-    setMbtiPhase("waiting");
-    setStreamMode("unknown");
-    setThinking("");
-    setTaskThinking({ identity: { text: "", truncated: false }, fortune: { text: "", truncated: false } });
-    setTaskErrors({});
-    setMessage("");
-    setErrors({});
-    setOffsetOptions([]);
-    setLivePhase("idle");
-    window.scrollTo(0, 0);
-  }
-
-  async function generatePortrait(facts: ChartFacts) {
-    const dayMaster = facts.bazi.dayMaster.value;
-    if (facts.persona.status !== "determined" || !dayMaster || !form.gender) return;
-    const signId = facts.zodiac.status === "determined" && !facts.zodiac.nearBoundary ? facts.zodiac.sign?.id ?? null : null;
-    const key = `${dayMaster}:${form.gender}:${signId ?? "unknown"}`;
-    if (portraitKeyRef.current === key) return;
-    portraitAbortRef.current?.abort();
-    const abort = new AbortController();
-    portraitAbortRef.current = abort;
-    portraitKeyRef.current = key;
-    setPortrait(null);
-    setPortraitStatus("loading");
-    setPortraitError("");
-    try {
-      const response = await fetch(`${BASE_PATH}/api/persona-image`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dayMaster, gender: form.gender, signId, historyId: historyIdRef.current }),
-        signal: abort.signal,
-      });
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { message?: string } | null;
-        throw new Error(failure?.message ?? "图片服务暂时不可用，请稍后重试。");
-      }
-      const data = await response.json() as { image?: string };
-      if (!data.image?.startsWith("data:image/")) throw new Error("IMAGE_INVALID");
-      if (abort.signal.aborted) return;
-      setPortrait(data.image);
-      setPortraitStatus("ready");
-    } catch (error) {
-      if (abort.signal.aborted) return;
-      portraitKeyRef.current = null;
-      setPortraitError(error instanceof Error && error.message !== "IMAGE_INVALID" ? error.message : "人物画未能完成，请重试。");
-      setPortraitStatus("failed");
-    }
-  }
-
+  function editBirth() { if (submittedForm) setForm(submittedForm); controller.reset(); setAnnualYear(null); setMessage(""); window.scrollTo(0, 0); }
   async function submit() {
-    const nextErrors: Record<string, string> = {};
-    if (!form.year.trim() || !form.month.trim() || !form.day.trim()) nextErrors.birthDate = "请填写完整的出生日期。";
-    else {
-      const maxDay = daysInBirthMonth(form.calendar, form.year, form.month, form.calendar === "lunar" && form.isLeapMonth);
-      if (!maxDay || Number(form.day) < 1 || Number(form.day) > maxDay) nextErrors.birthDate = `所选${form.calendar === "solar" ? "公历" : "农历"}年月没有这一天，请重新选择。`;
-    }
-    if (form.precision === "minute" && !form.timeValue) nextErrors["birthTime.value"] = "请选择出生时间，或改选时辰 / 不清楚。";
-    if (!form.gender) nextErrors.genderForCalculation = "请选择排盘性别。";
-    if (!form.provinceCode || (form.provinceCode !== "other" && !form.cityId)) nextErrors["birthPlace.cityId"] = "请先选择省份，再选择出生城市。";
-    if (form.provinceCode === "other" && !form.cityId && !form.timeZone) nextErrors["birthPlace.timeZone"] = "请选择出生时使用的时区。";
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
-      document.getElementById(nextErrors.birthDate ? "birth-year" : nextErrors["birthTime.value"] ? "birth-time" : nextErrors.genderForCalculation ? "gender-male" : nextErrors["birthPlace.timeZone"] ? "birth-zone" : "birth-place")?.focus();
-      return;
-    }
-    seq.current += 1;
-    historyIdRef.current = createRequestId();
-    const localSeq = seq.current;
-    abortRef.current?.abort();
-    portraitAbortRef.current?.abort();
-    portraitKeyRef.current = null;
-    setPortrait(null);
-    setPortraitStatus("idle");
-    setPortraitError("");
-    const abort = new AbortController();
-    abortRef.current = abort;
-    setErrors({});
-    setReading(null);
-    setMbtiError("");
-    setMbtiPhase("waiting");
-    setStreamMode("unknown");
-    setMessage("");
-    setThinking("");
-    thinkingRef.current = "";
-    taskThinkingRef.current = { identity: "", fortune: "" };
-    setTaskThinking({ identity: { text: "", truncated: false }, fortune: { text: "", truncated: false } });
-    setTaskPhase({ identity: "waiting", fortune: "waiting" });
-    setTaskErrors({});
-    setTruncated(false);
-    setExpanded(false);
-    setLivePhase("charting");
-    startedRef.current = Date.now();
-    let chartReady = false;
+    setErrors({}); setMessage("");
     try {
+      if (!form.year || !form.month || !form.day) { setErrors({ birthDate: "请先选择完整的出生年月日。" }); return; }
+      if (!form.gender) { setErrors({ genderForCalculation: "请选择排盘性别。" }); return; }
+      if (!form.timeZone || (!form.cityId && form.provinceCode !== "other")) { setErrors({ birthPlace: "请选择出生地。" }); return; }
       const input = payloadOf(form);
-      setSubmittedForm({ ...form });
-      setShowForm(false);
-      const chartResponse = await fetch(`${BASE_PATH}/api/chart`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, historyId: historyIdRef.current }),
-        signal: abort.signal,
-      });
-      const chartBody = await chartResponse.json() as Record<string, unknown>;
-      if (localSeq !== seq.current) return;
-      if (!chartResponse.ok) {
-        const path = typeof chartBody.fieldPath === "string" ? chartBody.fieldPath : "birthDate";
-        setErrors({ [path]: typeof chartBody.message === "string" ? chartBody.message : "请检查出生信息" });
-        setOffsetOptions(Array.isArray(chartBody.candidates) ? chartBody.candidates.filter((item): item is string => typeof item === "string") : []);
-        setShowForm(true);
-        setLivePhase("idle");
-        return;
-      }
-      if (!isChart(chartBody)) {
-        setMessage("排盘结果无法识别。");
-        setShowForm(true);
-        setLivePhase("idle");
-        return;
-      }
-      const facts = chartBody;
-      chartReady = true;
-      setChart(facts);
-      setAnnualYear(facts.annuals.currentYear);
-      void generatePortrait(facts);
-      await streamReading(input, facts, abort, localSeq);
-    } catch (error) {
-      if (error instanceof ZodError) {
-        const path = error.issues[0]?.path.join(".") ?? "birthDate";
-        setErrors({ [path]: "请检查这项信息后重试。" });
-        setShowForm(true);
-        setLivePhase("idle");
-        return;
-      }
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      if (localSeq !== seq.current) return;
-      setMessage("解读未能完成，排盘结果如已返回会保留。可以重试。");
-      if (!chartReady) setShowForm(true);
-      setLivePhase(chartReady ? "failed" : "idle");
+      const next = await controller.start({ ...input, focus: form.focus, question: form.question, mbti: form.mbti || null, nickname: form.nickname, cardNickname: form.cardNickname });
+      setAnnualYear(next.chart.annuals.currentYear); window.scrollTo(0, 0);
+    } catch (e) {
+      const error = e as Error & { fieldPath?: string; candidates?: string[] };
+      const path = error instanceof ZodError ? error.issues[0]?.path.join(".") : error.fieldPath;
+      if (path) setErrors({ [path]: error.message }); else setMessage(error.message || "请求暂未完成，请重试。");
+      setOffsetOptions(error.candidates ?? []);
     }
   }
-
-  async function streamReading(input: BirthInput, facts: ChartFacts, abort: AbortController, localSeq: number, requestedTasks?: readonly ReadingTaskId[]) {
-    setLivePhase("waiting");
-    const requestId = createRequestId();
-    requestIdRef.current = requestId;
-    seenSeq.current = new Set();
-    const response = await fetch(`${BASE_PATH}/api/reading`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...input,
-        requestId,
-        historyId: historyIdRef.current,
-        focus: form.focus,
-        question: form.question,
-        mbti: form.mbti || null,
-        asOfUtc: facts.asOfUtc,
-        requestedTasks,
-      }),
-      signal: abort.signal,
-    });
-    if (localSeq !== seq.current) return;
-    const type = response.headers.get("content-type") ?? "";
-    if (!type.includes("text/event-stream")) {
-      const body = await response.json() as { message?: string };
-      setMessage(`基础命盘已完成。${body.message ?? "AI 解读尚未完成"}`);
-      setLivePhase("failed");
-      return;
-    }
-    const reader = response.body?.getReader();
-    if (!reader) {
-      setMessage("连接中断，没有收到完成标记。请手动重试，不会自动重发。");
-      setLivePhase("failed");
-      return;
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let pending = "";
-    let sawDone = false;
-    let stagedReading: Reading | null = null;
-    let receivedPart = false;
-    let failedParts = 0;
-    const taskPending: Record<ReadingTaskId, string> = { identity: "", fortune: "" };
-    const flush = setInterval(() => {
-      if (localSeq !== seq.current) return;
-      if (pending) {
-        const next = appendThinking(thinkingRef.current, pending);
-        thinkingRef.current = next.text;
-        pending = "";
-        setThinking(next.text);
-        setTruncated(next.truncated);
-      }
-      for (const taskId of ["identity", "fortune"] as const) {
-        if (!taskPending[taskId]) continue;
-        const taskNext = appendThinking(taskThinkingRef.current[taskId], taskPending[taskId]);
-        taskThinkingRef.current[taskId] = taskNext.text;
-        taskPending[taskId] = "";
-        setTaskThinking((prev) => ({ ...prev, [taskId]: taskNext }));
-      }
-    }, 100);
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        const blocks = buffer.split(/\n\n/);
-        buffer = blocks.pop() ?? "";
-        for (const block of blocks) {
-          const parsed = parseSseBlock(block);
-          if (!parsed || !parsed.data || typeof parsed.data !== "object") continue;
-          const data = parsed.data as Record<string, unknown>;
-          if (data.requestId !== requestId || data.chartFingerprint !== facts.chartFingerprint) continue;
-          if (typeof data.seq === "number" && seenSeq.current.has(data.seq)) continue;
-          if (typeof data.seq === "number") seenSeq.current.add(data.seq);
-          if (localSeq !== seq.current) continue;
-          if (parsed.event === "status" && typeof data.phase === "string") { setStreamMode("single"); setLivePhase(data.phase as Phase); }
-          if (parsed.event === "thinking_delta" && typeof data.text === "string") pending += data.text;
-          if (parsed.event === "mbti_status" && typeof data.phase === "string") { setMbtiPhase(data.phase); setLivePhase(data.phase as Phase); }
-          if (parsed.event === "mbti_profile" && data.profile && typeof data.profile === "object") { setReading((prev) => ({ ...(prev ?? blankReading(facts)), mbtiProfile: data.profile as Reading["mbtiProfile"] })); setMbtiPhase("done"); }
-          if (parsed.event === "mbti_error") { setMbtiError(typeof data.message === "string" ? data.message : "MBTI 侧写未完成。"); setMbtiPhase("failed"); }
-          const taskId = data.taskId === "identity" || data.taskId === "fortune" ? data.taskId : null;
-          if (taskId && parsed.event === "module_status" && typeof data.phase === "string") {
-            setStreamMode("parallel");
-            setTaskPhase((prev) => ({ ...prev, [taskId]: data.phase as TaskPhase }));
-            setLivePhase(data.phase as Phase);
-          }
-          if (taskId && parsed.event === "module_thinking_delta" && typeof data.text === "string") taskPending[taskId] += data.text;
-          if (taskId && parsed.event === "module_retry") {
-            taskPending[taskId] = "";
-            taskThinkingRef.current[taskId] = "";
-            setTaskThinking((prev) => ({ ...prev, [taskId]: { text: "", truncated: false } }));
-            setTaskPhase((prev) => ({ ...prev, [taskId]: "waiting" }));
-          }
-          if (taskId && parsed.event === "module_result" && data.part && typeof data.part === "object") {
-            if (taskId === "identity" && "personality" in data.part) setReading((prev) => ({ ...(prev ?? blankReading(facts)), ...data.part as IdentityReading }));
-            if (taskId === "fortune" && "annualReadings" in data.part) setReading((prev) => ({ ...(prev ?? blankReading(facts)), ...data.part as FortuneReading }));
-            receivedPart = true;
-            setTaskPhase((prev) => ({ ...prev, [taskId]: "done" }));
-          }
-          if (taskId && parsed.event === "module_error") {
-            failedParts += 1;
-            setTaskErrors((prev) => ({ ...prev, [taskId]: typeof data.message === "string" ? data.message : "这一部分未完成" }));
-            setTaskPhase((prev) => ({ ...prev, [taskId]: "failed" }));
-          }
-          if (parsed.event === "retry") {
-            pending = "";
-            thinkingRef.current = "";
-            setThinking("");
-            setTruncated(false);
-            setAnnouncement("正在重新生成");
-          }
-          if (parsed.event === "result" && isReading(data.reading)) {
-            stagedReading = data.reading;
-          }
-          if (parsed.event === "error") {
-            setMessage(typeof data.message === "string" ? data.message : "解读失败");
-            setLivePhase("failed");
-          }
-          if (parsed.event === "done") {
-            sawDone = true;
-            if ((data.outcome === "success" || data.outcome === "partial") && receivedPart) {
-              if (failedParts) setMessage("部分解读未完成，已保留生成成功的内容。可单独重试失败部分。");
-              setLivePhase("done");
-            } else if (data.outcome === "success" && stagedReading) {
-              setReading(stagedReading);
-              setExpanded(false);
-              setLivePhase("done");
-            } else if (phaseRef.current !== "failed") {
-              setMessage("解读没有收到完整结果，请手动重试。");
-              setLivePhase("failed");
-            }
-          }
-        }
-      }
-    } finally {
-      if (pending && localSeq === seq.current) {
-        const next = appendThinking(thinkingRef.current, pending);
-        thinkingRef.current = next.text;
-        setThinking(next.text);
-        setTruncated(next.truncated);
-      }
-      clearInterval(flush);
-      for (const taskId of ["identity", "fortune"] as const) {
-        if (!taskPending[taskId] || localSeq !== seq.current) continue;
-        const next = appendThinking(taskThinkingRef.current[taskId], taskPending[taskId]);
-        taskThinkingRef.current[taskId] = next.text;
-        setTaskThinking((prev) => ({ ...prev, [taskId]: next }));
-      }
-    }
-    if (!sawDone && localSeq === seq.current && phaseRef.current !== "cancelled") {
-      setMessage("连接中断，没有收到完成标记。请手动重试，不会自动重发。");
-      setLivePhase("failed");
-    }
+  async function generatePortrait(_facts: ChartFacts) { await controller.mutate({ action: portrait ? "portrait" : "retry", task: "portrait" }); }
+  function selectYear(year: number) { setAnnualYear(year); void controller.mutate({ action: "year", year }); }
+  async function copyReading() {
+    if (!chart || !reading) return;
+    const missing: ReadingTaskId[] = [];
+    if (report?.tasks.identity?.status !== "completed") missing.push("identity");
+    if (report?.tasks.fortune_current?.status !== "completed") missing.push("fortune");
+    const selectedYear = annualYear ?? chart.annuals.currentYear;
+    const text = copyReport(chart, reading, selectedYear, missing) + (reading.annualReadings.some((item) => item.year === selectedYear && item.status === "generated") ? "" : `\n\n${selectedYear} 年解读尚未完成`);
+    if (await tryCopyText(text, navigator.clipboard)) setMessage("解读已复制");
+    else setCopyPreview(text);
   }
-
-  async function retryTask(taskId: ReadingTaskId) {
-    if (!chart || ["charting", "waiting", "thinking", "answering", "validating"].includes(phaseRef.current)) return;
-    seq.current += 1;
-    const localSeq = seq.current;
-    const abort = new AbortController();
-    abortRef.current = abort;
-    setMessage("");
-    setTaskErrors((prev) => { const next = { ...prev }; delete next[taskId]; return next; });
-    setTaskPhase((prev) => ({ ...prev, [taskId]: "waiting" }));
-    taskThinkingRef.current[taskId] = "";
-    setTaskThinking((prev) => ({ ...prev, [taskId]: { text: "", truncated: false } }));
-    startedRef.current = Date.now();
-    try {
-      const input = payloadOf(form);
-      let fresh = chart;
-      if (Date.now() - Date.parse(chart.asOfUtc) > 4 * 60_000) {
-        setLivePhase("charting");
-        const response = await fetch(`${BASE_PATH}/api/chart`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, historyId: historyIdRef.current }), signal: abort.signal });
-        const body = await response.json() as unknown;
-        if (!response.ok || !isChart(body)) throw new Error("REFRESH_CHART_FAILED");
-        fresh = body;
-        const equivalent = JSON.stringify([chart.bazi, chart.persona, chart.zodiac, chart.luck, chart.annuals, chart.factCatalog, chart.allowedTopics])
-          === JSON.stringify([fresh.bazi, fresh.persona, fresh.zodiac, fresh.luck, fresh.annuals, fresh.factCatalog, fresh.allowedTopics]);
-        if (!equivalent) { await submit(); return; }
-        setChart(fresh);
-      }
-      if (localSeq !== seq.current) return;
-      await streamReading(input, fresh, abort, localSeq, [taskId]);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      if (localSeq !== seq.current) return;
-      setTaskErrors((prev) => ({ ...prev, [taskId]: "重试连接中断" }));
-      setTaskPhase((prev) => ({ ...prev, [taskId]: "failed" }));
-      setLivePhase("done");
-      setMessage("已保留生成成功的内容，失败部分仍可重试。");
-    }
+  async function sendFeedback(module: string, value: string) {
+    if (!report) return;
+    try { await reportRequest("/api/reports/" + report.id + "/feedback", { module, value }); setMessage("已收到你的反馈，谢谢"); }
+    catch (e) { setMessage((e as Error).message); }
   }
-
   async function saveCard() {
     const node = document.getElementById("persona-card");
     if (!node || cardExporting) return;
@@ -572,7 +188,7 @@ export function FateApp() {
         link.download = "zhiming-card.png";
         link.click();
       }
-      void fetch(`${BASE_PATH}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "card_save", historyId: historyIdRef.current }) }).catch(() => {});
+      void fetch(`${BASE_PATH}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "card_save", historyId: report?.id }) }).catch(() => {});
     } catch (error) {
       if (error instanceof Error) setMessage("人格卡导出失败，请改用系统截图。");
     } finally {
@@ -580,17 +196,15 @@ export function FateApp() {
     }
   }
 
-  const sentence = reading?.personality.cardSentence?.text ?? "一份自我探索的侧写";
+  const sentence = reading?.personality.cardSentence?.text ?? (chart?.persona.title ? chart.persona.title + "，" + chart.persona.keywords.join("、") + "。" : "一份自我探索的侧写");
   const annual = chart?.annuals.items.find((item) => item.year === annualYear) ?? null;
   const annualReading = reading?.annualReadings.find((item) => item.year === annualYear) ?? null;
-  const identityAvailable = Boolean(chart?.allowedTopics.personality || chart?.allowedTopics.zodiac);
-  const fortuneAvailable = Boolean(chart?.allowedTopics.currentLuck || chart?.allowedTopics.annualYears.length);
   const identityReady = Boolean(reading && (taskPhase.identity === "done" || (streamMode === "single" && phase === "done")));
   const fortuneReady = Boolean(reading && (taskPhase.fortune === "done" || (streamMode === "single" && phase === "done")));
   const finalPhase = ["done", "failed", "cancelled"].includes(phase);
-  const showIdentity = identityReady || (finalPhase && chart !== null);
-  const showPersonaCard = Boolean(chart && chart.persona.status === "determined" && finalPhase && portraitStatus === "ready" && portrait);
-  const showFortune = fortuneReady || (finalPhase && chart !== null);
+  const showIdentity = chart !== null;
+  const showPersonaCard = Boolean(chart && chart.persona.status === "determined" && portrait);
+  const showFortune = chart !== null;
   const resultForm = submittedForm ?? form;
   const birthCity = CITIES.find((city) => city.id === resultForm.cityId);
   const birthProvince = PROVINCES.find((province) => province.code === resultForm.provinceCode);
@@ -631,7 +245,7 @@ export function FateApp() {
         </div>
       )}
       {!showForm ? <section className="result-input" aria-label="本次输入的出生信息">
-        <p className="result-input-title">本次输入 · 请核对出生信息</p>
+        <p className="result-input-title">{resultForm.nickname ? resultForm.nickname + "的解读" : "本次解读"}</p><p className="input-summary">{dateLabel} · {timeLabel} · {resultForm.gender === "male" ? "男" : "女"} · {birthPlaceLabel}</p><details><summary>核对完整出生信息</summary>
         <div className="result-input-grid">
           <div><span>出生日期</span><strong>{dateLabel}</strong></div>
           <div><span>出生时间</span><strong>{timeLabel}</strong></div>
@@ -643,26 +257,16 @@ export function FateApp() {
         </div>
         {chart ? <p className="result-input-pillars"><span>排出的八字</span><strong>{[chart.bazi.year.value, chart.bazi.month.value, chart.bazi.day.value, chart.bazi.time.value].map((pillar) => pillar ?? "待确认").join(" · ")}</strong></p> : null}
         {resultForm.question.trim() ? <p className="result-input-question"><span>特别想了解</span>{resultForm.question.trim()}</p> : null}
+        </details>
         {chart?.persona.status === "determined" && portraitStatus !== "idle" ? <p className={`portrait-progress portrait-progress-${portraitStatus}`} role="status">{portraitStatus === "loading" ? <span className="portrait-spinner" aria-hidden="true" /> : null}{portraitStatus === "loading" ? "国风人格卡绘制中，解读可先看" : portraitStatus === "failed" ? `人物卡暂未生成：${portraitError || "请在结果末尾重试。"}` : "国风人格卡已完成，可在结果末尾查看"}</p> : null}
       </section> : null}
-      {!showForm && !["idle", "done", "failed", "cancelled"].includes(phase) ? (
-        <ThinkingPanel
-          phaseLabel={PHASE_LABEL[phase]}
-          elapsed={elapsed}
-          text={thinking}
-          truncated={truncated}
-          expanded={expanded}
-          onToggle={() => setExpanded((value) => !value)}
-          onCancel={() => { seq.current += 1; abortRef.current?.abort(); portraitAbortRef.current?.abort(); if (portraitStatus === "loading") { portraitKeyRef.current = null; setPortraitStatus("failed"); } if (!chart) setShowForm(true); setLivePhase("cancelled"); setMessage("已取消生成"); }}
-          tasks={streamMode === "parallel" ? (["identity", "fortune"] as const).filter((taskId) => taskId === "identity" ? identityAvailable : fortuneAvailable).map((taskId) => ({ label: TASK_LABEL[taskId], phase: taskPhase[taskId] === "done" ? "已完成" : taskPhase[taskId] === "failed" ? "未完成" : PHASE_LABEL[taskPhase[taskId]], ...taskThinking[taskId] })) : undefined}
-        />
-      ) : null}
-      {phase === "done" && thinking ? (
-        <button type="button" className="text-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起思考过程" : "查看本次思考片段"}</button>
-      ) : null}
-      {expanded && phase === "done" && thinking ? <pre className="think" aria-hidden="true">{thinking}</pre> : null}
-      {message ? <p className="error" role="alert">{message}</p> : null}
+      {!showForm && pendingTasks.length ? <div className="report-progress" role="status"><span className="portrait-spinner" aria-hidden="true" /><span>{pendingTasks.map(([key]) => taskLabel(key)).join("、")}正在准备 · 可以先看已完成的解读</span><button type="button" className="text-button" onClick={() => void controller.mutate({ action: "cancel" })}>停止生成</button></div> : null}
+      {controller.restoring ? <p role="status">正在恢复本次报告…</p> : null}
+      {controller.error ? <p className="error" role="alert">{controller.error}</p> : null}
+      {message ? <p className="report-message" role="status">{message}</p> : null}
       {!showForm && chart && chart.persona.status === "determined" && showIdentity ? <PersonaSummary card={cardOf(chart, sentence)} /> : !showForm && !showIdentity && !finalPhase ? <LoadingSummary /> : null}
+      {!showForm && reading ? <ul className="report-highlights">{[reading.personality.strengths[0]?.text, reading.currentLuck.theme?.text, reading.annualReadings.find((a) => a.year === chart?.annuals.currentYear)?.actions[0]?.text].filter(Boolean).map((text) => <li key={text}>{text}</li>)}</ul> : null}
+      {!showForm && chart ? <nav className="result-nav" aria-label="报告分区"><a href="#personality">人格</a><a href="#zodiac">星座</a><a href="#luck">大运流年</a><a href="#portrait">人物卡</a></nav> : null}
       {!showForm && chart ? (
         <div className="result-stack">
           {showFortune && reading?.overview.text ? (
@@ -673,14 +277,14 @@ export function FateApp() {
             </section>
           ) : !finalPhase && !fortuneReady ? <LoadingSection marker="总" title="一句话总览" kind="overview" /> : null}
           {showIdentity && reading?.personality.status === "generated" && reading.personality.summary ? (
-            <section className="reading personality-reading ready">
+            <section id="personality" className="reading personality-reading ready">
               <h2><span className="idx">格</span>人格解读</h2>
               <p><GlossaryText text={reading.personality.summary.text} /></p>
-              <div className="insight-grid">
+              <details className="reading-detail"><summary>优势、提醒与相处建议</summary><div className="insight-grid">
                 <div><h3>可发挥</h3>{reading.personality.strengths.map((item) => <p key={item.text}><GlossaryText text={item.text} /></p>)}</div>
                 <div><h3>需留意</h3>{reading.personality.blindSpots.map((item) => <p key={item.text}><GlossaryText text={item.text} /></p>)}</div>
               </div>
-              {reading.personality.relationshipAdvice ? <p><strong>与人相处　</strong><GlossaryText text={reading.personality.relationshipAdvice.text} /></p> : null}
+              {reading.personality.relationshipAdvice ? <p><strong>与人相处　</strong><GlossaryText text={reading.personality.relationshipAdvice.text} /></p> : null}</details><div className="feedback"><span>这部分对你有帮助吗？</span>{["有帮助", "太笼统", "术语看不懂"].map((value) => <button type="button" key={value} onClick={() => void sendFeedback("identity", value)}>{value}</button>)}</div>
             </section>
           ) : !finalPhase && !identityReady ? <LoadingSection marker="格" title="人格解读" kind="personality" /> : showIdentity && chart.persona.status !== "determined" ? (
             <section className="reading personality-reading"><h2><span className="idx">格</span>人格解读</h2><p>日主尚未唯一确定，这里不写专属人格正文。</p></section>
@@ -695,7 +299,7 @@ export function FateApp() {
                 <div><h3>与人沟通</h3><p>{reading.mbtiProfile.communication}</p></div>
                 <div><h3>成长练习</h3><p>{reading.mbtiProfile.growth}</p></div>
               </div>
-            </> : mbtiError ? <p className="module-notice">{mbtiError}</p> : <div className="mbti-loading" role="status"><span className="portrait-spinner" aria-hidden="true" />{mbtiPhase === "validating" ? "正在整理 MBTI 侧写" : "正在解读你的 MBTI"}</div>}
+            </> : mbtiError ? <p className="module-notice">{mbtiError}</p> : <div className="mbti-loading" role="status"><span className="portrait-spinner" aria-hidden="true" />{activeTask(report?.tasks.mbti) ? "正在解读你的 MBTI" : "MBTI 侧写尚未完成，可在下方重试"}</div>}
             {reading?.mbtiNote ? <div className="mbti-synthesis">
               <h3>和中式人格放在一起看</h3>
               <div><strong>相呼应</strong><p>{reading.mbtiNote.commonGround}</p></div>
@@ -705,7 +309,7 @@ export function FateApp() {
             <p className="mbti-footnote">MBTI 来自你填写的自测类型；这里用于性格偏好与建议，不改变排盘结果。</p>
           </section> : null}
           {showIdentity ? <ZodiacPanel chart={chart} cultureNote={reading?.zodiacNote?.text} /> : <LoadingSection marker="星" title="太阳星座" kind="zodiac" />}
-          {showFortune ? <section className={`reading detailed-reading luck-reading${reading?.currentLuck.summary ? " ready" : ""}`}>
+          {showFortune ? <section id="luck" className={`reading detailed-reading luck-reading${reading?.currentLuck.summary ? " ready" : ""}`}>
             <h2><span className="idx">运</span>当前大运</h2>
             {chart.luck.status === "determined" && chart.luck.current ? (
               <>
@@ -716,12 +320,12 @@ export function FateApp() {
                   <p><strong>结束　</strong>{readableMoment(chart.luck.current.endLabel)}</p>
                 </details>
                 {reading?.currentLuck.theme ? <h3 className="luck-theme">{reading.currentLuck.theme.text}</h3> : null}
-                {reading?.currentLuck.summary ? <div className="analysis-section"><h3>这一运的主线与依据</h3><p><GlossaryText text={reading.currentLuck.summary.text} /></p></div> : <p className="module-notice">大运阶段已排定。{taskErrors.fortune ?? (phase === "failed" || phase === "cancelled" ? "AI 正文尚未完成，可在下方重新生成。" : "正在生成详细解读…")}</p>}
+                <details className="reading-detail"><summary>展开大运解读与依据</summary>{reading?.currentLuck.summary ? <div className="analysis-section"><h3>这一运的主线与依据</h3><p><GlossaryText text={reading.currentLuck.summary.text} /></p></div> : <p className="module-notice">大运阶段已排定。{taskErrors.fortune ?? (finalPhase ? "AI 正文尚未完成，可在下方重新生成。" : "正在生成详细解读…")}</p>}
                 <div className="analysis-columns">
                   {reading?.currentLuck.opportunity ? <div className="analysis-section"><h3>机会与可用方向</h3><p><GlossaryText text={reading.currentLuck.opportunity.text} /></p></div> : null}
                   {reading?.currentLuck.attention ? <div className="analysis-section"><h3>需要留意与如何应对</h3><p><GlossaryText text={reading.currentLuck.attention.text} /></p></div> : null}
                 </div>
-                <AnalysisBasis chart={chart} prefix="luck.current" />
+                <AnalysisBasis chart={chart} prefix="luck.current" /></details>
                 <details>
                   <summary>前后大运</summary>
                   {chart.luck.previous ? <p>上一运 {chart.luck.previous.pillar} · {luckYears(chart.luck.previous.startLabel, chart.luck.previous.endLabel)}（约十年）</p> : <p>没有更早的正式大运。</p>}
@@ -734,7 +338,7 @@ export function FateApp() {
             <h2><span className="idx">年</span>年度流年</h2>
             <div className="tabs" aria-label="流年">
               {chart.annuals.items.map((item) => (
-                <button type="button" key={item.year} aria-pressed={item.year === annualYear} onClick={() => setAnnualYear(item.year)}>
+                <button type="button" key={item.year} aria-pressed={item.year === annualYear} onClick={() => selectYear(item.year)}>
                   {item.role === "previous" ? "上一" : item.role === "current" ? "当前" : "下一"} {item.year}
                 </button>
               ))}
@@ -745,18 +349,20 @@ export function FateApp() {
                 {annualStatusMessage(annual.personalStatus) ? <p className="module-notice">{annualStatusMessage(annual.personalStatus)}</p> : null}
                 {annualReading?.status === "generated" ? (
                   <>
-                    <div className="analysis-section"><h3>年度主线与命盘关系</h3><p><GlossaryText text={annualReading.summary?.text ?? ""} /></p></div>
-                    <div className="annual-outlooks"><h3>这一年可能遇到的事</h3><ol>{annualReading.outlooks.map((item) => <li key={item.text}><GlossaryText text={item.text} /></li>)}</ol></div>
-                    <div className="annual-segments"><h3>放在大运里看这一年</h3>{annualReading.segments.map((segment, index) => <p key={segment.periodId}><strong>{annual.segments[index]?.pillar ?? "起运前"}阶段　</strong><GlossaryText text={segment.summary.text} /></p>)}</div>
+                    <details className="reading-detail"><summary>年度主线与命盘关系</summary><div className="analysis-section"><h3>年度主线与命盘关系</h3><p><GlossaryText text={annualReading.summary?.text ?? ""} /></p></div>
+                    </details><div className="annual-outlooks"><h3>这一年可能遇到的事</h3><ol>{annualReading.outlooks.map((item) => <li key={item.text}><GlossaryText text={item.text} /></li>)}</ol></div>
+                    <details className="reading-detail"><summary>事业、人际与财务详细解读</summary><div className="annual-segments"><h3>放在大运里看这一年</h3>{annualReading.segments.map((segment, index) => <p key={segment.periodId}><strong>{annual.segments[index]?.pillar ?? "起运前"}阶段　</strong><GlossaryText text={segment.summary.text} /></p>)}</div>
                     <div className="analysis-columns">
                       <div className="analysis-section"><h3>事业与学习</h3><p><GlossaryText text={annualReading.career?.text ?? ""} /></p></div>
                       <div className="analysis-section"><h3>感情与人际</h3><p><GlossaryText text={annualReading.relationships?.text ?? ""} /></p></div>
                       <div className="analysis-section"><h3>财务与积累</h3><p><GlossaryText text={annualReading.finance?.text ?? ""} /></p></div>
-                      <div className="analysis-section action-section"><h3>可以着手的两件事</h3><ol className="reading-actions">{annualReading.actions.map((item) => <li key={item.text}><GlossaryText text={item.text} /></li>)}</ol></div>
+                    </div></details><div><div className="analysis-section action-section"><h3>可以着手的两件事</h3><ol className="reading-actions">{annualReading.actions.map((item) => <li key={item.text}><GlossaryText text={item.text} /></li>)}</ol></div>
                     </div>
                   </>
-                ) : annual.personalStatus === "applicable" ? <p className="module-notice">年度阶段已排定。{taskErrors.fortune ?? (phase === "failed" || phase === "cancelled" ? "AI 正文尚未完成，可在下方重新生成。" : "正在生成事业、人际与财务解读…")}</p> : null}
+                ) : null}
                 <AnalysisBasis chart={chart} prefix={`annual.${annual.year}`} />
+                {annualReading?.status === "generated" ? <div className="feedback"><span>年度解读反馈</span>{["有帮助", "太笼统", "术语看不懂"].map((value) => <button type="button" key={value} onClick={() => void sendFeedback(annual.year === chart.annuals.currentYear ? "fortune_current" : "annual_" + annual.year, value)}>{value}</button>)}</div> : <p className="module-notice">{report?.tasks[annual.year === chart.annuals.currentYear ? "fortune_current" : "annual_" + annual.year]?.error ?? (activeTask(report?.tasks[annual.year === chart.annuals.currentYear ? "fortune_current" : "annual_" + annual.year]) ? "正在生成这一年的解读…" : "这一年的解读尚未生成。")}</p>}
+                {report?.tasks[annual.year === chart.annuals.currentYear ? "fortune_current" : "annual_" + annual.year]?.error ? <button type="button" className="quiet" onClick={() => void controller.mutate({ action: "retry", task: annual.year === chart.annuals.currentYear ? "fortune_current" : "annual_" + annual.year })}>重试这一年</button> : null}
               </>
             ) : null}
           </section> : <LoadingSection marker="年" title="年度流年" kind="annual" />}
@@ -773,16 +379,19 @@ export function FateApp() {
             {chart.timeBasis.notes.map((item) => <p key={item}>{item}</p>)}
             {chart.limitations.map((item) => <p key={item}>{item}</p>)}
           </details>
-          {showPersonaCard && portrait ? <PersonaCard card={cardOf(chart, sentence)} artwork={portrait} />
-            : <LoadingPortrait status={chart.persona.status !== "determined" && finalPhase ? "暂无可用人物卡" : portraitStatus === "failed" ? portraitError || "人物卡暂未生成" : portraitStatus === "loading" ? "正在绘制人物卡" : "人物卡将在解读完成后呈现"} loading={portraitStatus === "loading"} onRetry={portraitStatus === "failed" && finalPhase ? () => void generatePortrait(chart) : undefined} />}
-          <div className="actions">
-            {identityReady || fortuneReady ? <button type="button" className="quiet" onClick={() => { const missing: ReadingTaskId[] = []; if (identityAvailable && !identityReady) missing.push("identity"); if (fortuneAvailable && !fortuneReady) missing.push("fortune"); void navigator.clipboard.writeText(copyReport(chart, reading, annualYear ?? chart.annuals.currentYear, missing)).catch(() => setMessage("复制失败，请检查浏览器剪贴板权限。")); }}>复制解读</button> : null}
-            {showPersonaCard ? <button type="button" className="quiet" disabled={cardExporting} onClick={() => void saveCard()}>{cardExporting ? "正在准备图片…" : "保存人格卡"}</button> : null}
-            {taskErrors.identity ? <button type="button" className="quiet" onClick={() => void retryTask("identity")}>重试人格与星座解读</button> : null}
-            {taskErrors.fortune ? <button type="button" className="quiet" onClick={() => void retryTask("fortune")}>重试大运与流年解读</button> : null}
-            {phase === "failed" ? <button type="button" className="quiet" onClick={() => void submit()}>重试解读</button> : null}
-            {phase === "done" || phase === "cancelled" ? <button type="button" className="quiet" onClick={() => { portraitKeyRef.current = null; void submit(); }}>重新生成解读</button> : null}
+          <section id="portrait" className="portrait-section">{showPersonaCard && portrait ? <PersonaCard card={({...cardOf(chart, sentence), nickname: report?.input.cardNickname ? report.input.nickname : undefined})} artwork={portrait} />
+            : <LoadingPortrait status={chart.persona.status !== "determined" && finalPhase ? "暂无可用人物卡" : portraitStatus === "failed" ? portraitError || "人物卡暂未生成" : portraitStatus === "loading" ? "正在绘制人物卡" : "人物卡将在解读完成后呈现"} loading={portraitStatus === "loading"} onRetry={portraitStatus === "failed" ? () => void generatePortrait(chart) : undefined} />}
+          </section>
+          <section className="reading report-followups"><h2><span className="idx">问</span>继续聊聊这份解读</h2>
+            {Object.entries(report?.tasks ?? {}).filter(([key]) => key.startsWith("followup_")).map(([key, task]) => <article key={key}><h3>{task.question}</h3>{report?.followups[key] ? <><p>{report.followups[key].answer}</p><ul>{report.followups[key].actions.map((action) => <li key={action}>{action}</li>)}</ul><details><summary>回答依据</summary><ul>{report.followups[key].basisRefs.map((id) => <li key={id}><GlossaryText text={chart.factCatalog.find((fact) => fact.id === id)?.description ?? id} /></li>)}</ul></details></> : <p role="status">{task.error ?? (activeTask(task) ? "正在结合这份报告回答…" : "这次追问已停止")}</p>}{task.error || task.status === "cancelled" || task.status === "interrupted" ? <button type="button" className="quiet" onClick={() => void controller.mutate({ action: "retry", task: key })}>重试这次追问</button> : null}</article>)}
+            <form onSubmit={(event) => { event.preventDefault(); if (followup.trim()) { void controller.mutate({ question: followup.trim() }, "followups"); setFollowup(""); } }}><p className="hint">例如：我该怎么安排学习？相处时要留意什么？</p><label htmlFor="followup">还想了解什么 <span className="hint">每份报告最多 3 次 · 每次 200 字</span></label><textarea id="followup" maxLength={200} value={followup} onChange={(event) => setFollowup(event.target.value)} /><button className="quiet" disabled={!followup.trim() || (!identityReady && !fortuneReady) || Object.keys(report?.tasks ?? {}).filter((key) => key.startsWith("followup_")).length >= 3}>继续追问</button></form>
+          </section>
+          <div className="actions report-secondary-actions">
+            {portrait ? <button type="button" className="quiet" disabled={activeTask(portraitTask) || (report?.replacements ?? 0) >= 3} onClick={() => void generatePortrait(chart)}>{activeTask(portraitTask) ? "新画绘制中，原图可保存" : "换一张人物画"}</button> : null}
+            {identityReady || fortuneReady ? <button type="button" className="quiet" onClick={() => void copyReading()}>复制解读</button> : null}
+            {Object.entries(report?.tasks ?? {}).filter(([key, task]) => !key.startsWith("followup_") && ["failed", "interrupted", "cancelled"].includes(task.status)).map(([key]) => <button type="button" className="quiet" key={key} onClick={() => void controller.mutate({ action: "retry", task: key })}>重试{taskLabel(key)}</button>)}
           </div>
+          <div className="actions result-actions"><a className="quiet" href="#portrait">查看人物卡</a><button type="button" className="quiet" disabled={!showPersonaCard || cardExporting} onClick={() => void saveCard()}>{cardExporting ? "正在准备图片…" : showPersonaCard ? "保存人格卡" : "人物卡未就绪"}</button></div>
         </div>
       ) : !showForm ? <div className="result-stack">
         <LoadingSection marker="总" title="一句话总览" kind="overview" />
@@ -794,13 +403,8 @@ export function FateApp() {
         <LoadingSection marker="据" title="排盘依据" kind="basis" />
         <LoadingPortrait status="正在准备人物卡" loading />
       </div> : null}
-      {cardPreview ? <div className="card-preview" role="dialog" aria-modal="true" aria-label="保存人格卡图片">
-        <button type="button" className="card-preview-backdrop" aria-label="关闭图片预览" onClick={() => setCardPreview(null)} />
-        <div className="card-preview-content">
-          <div className="card-preview-head"><p>长按图片，保存到相册</p><button type="button" className="card-preview-close" aria-label="关闭图片预览" onClick={() => setCardPreview(null)}>×</button></div>
-          <img src={cardPreview} alt="已生成的中式MBTI人格卡，可长按保存" />
-        </div>
-      </div> : null}
+      {copyPreview ? <ReportDialog title="手动复制解读" onClose={() => setCopyPreview(null)}><p>长按文字全选复制，或用电脑快捷键复制。</p><textarea aria-label="完整解读文字" readOnly value={copyPreview} onFocus={(event) => event.target.select()} rows={14} /></ReportDialog> : null}
+      {cardPreview ? <ReportDialog title="长按图片，保存到相册" onClose={() => setCardPreview(null)}><img className="export-preview" src={cardPreview} alt="已生成的中式MBTI人格卡，可长按保存" /></ReportDialog> : null}
     </main>
   );
 }

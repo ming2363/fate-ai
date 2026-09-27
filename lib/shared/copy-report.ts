@@ -3,6 +3,11 @@ import { SITE_NAME } from "@/lib/shared/versions";
 import { annualStatusMessage, zodiacComparison } from "@/lib/shared/display";
 import { cleanReadingText } from "@/lib/shared/reading-text";
 
+export async function tryCopyText(text: string, clipboard?: Pick<Clipboard, "writeText">): Promise<boolean> {
+  try { if (!clipboard?.writeText) return false; await clipboard.writeText(text); return true; }
+  catch { return false; }
+}
+
 function paragraph(title: string, text: string | null | undefined): string {
   return text ? `${title}\n${cleanReadingText(text)}` : "";
 }

@@ -97,6 +97,8 @@ describe("国风人物画", () => {
     expect(calls).toHaveLength(2);
 
     const unsafeFetch = (async () => Response.json({ output: { choices: [{ message: { content: [{ image: "https://evil.example/portrait.png" }] } }] } })) as typeof fetch;
-    await expect(generatePersonaImage("戊", "male", null, "test-key", new AbortController().signal, unsafeFetch)).rejects.toThrow("IMAGE_HOST_INVALID");
+    const onGenerated = vi.fn(async () => {});
+    await expect(generatePersonaImage("戊", "male", null, "test-key", new AbortController().signal, unsafeFetch, { onGenerated, singleAttempt: true })).rejects.toThrow("IMAGE_HOST_INVALID");
+    expect(onGenerated).toHaveBeenCalledTimes(1); // The upstream image is billable even if local download is refused.
   });
 });

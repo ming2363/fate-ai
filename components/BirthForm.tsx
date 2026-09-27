@@ -7,6 +7,8 @@ import { SHICHEN } from "@/lib/shared/shichen";
 import { MBTI_TYPES, type MbtiType } from "@/lib/shared/mbti";
 
 export type FormState = {
+  readonly nickname: string;
+  readonly cardNickname: boolean;
   readonly calendar: "solar" | "lunar";
   readonly year: string;
   readonly month: string;
@@ -26,6 +28,8 @@ export type FormState = {
 };
 
 export const INITIAL_FORM: FormState = {
+  nickname: "",
+  cardNickname: false,
   calendar: "solar",
   year: "",
   month: "",
@@ -150,7 +154,8 @@ export function BirthForm({
         </fieldset>
       ) : null}
       <details className="optional-fields">
-        <summary>补充 MBTI 或关注的问题 <span>选填</span></summary>
+        <summary>称呼、MBTI 或关注的问题 <span>选填</span></summary>
+        <div className="field"><label htmlFor="nickname">怎么称呼你 <span className="hint">选填 · 最多 20 字</span></label><input id="nickname" maxLength={20} value={form.nickname} onChange={(event) => onChange({ ...form, nickname: event.target.value })} /><label className="nickname-option"><input type="checkbox" checked={form.cardNickname} onChange={(event) => onChange({ ...form, cardNickname: event.target.checked })} />也显示在可保存的人格卡上</label></div>
         <div className="field">
           <label htmlFor="focus">关注方向</label>
           <select id="focus" value={form.focus} onChange={(event) => {

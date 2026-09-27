@@ -10,7 +10,7 @@ import { validateReading, validateTaskReading } from "@/lib/server/reading-valid
 import { readUpstreamSse } from "@/lib/server/upstream";
 import { FORTUNE_PROMPT, IDENTITY_PROMPT, MBTI_PROMPT, RETRY_INSTRUCTION, SYSTEM_PROMPT, TASK_REPAIR_PROMPT } from "@/prompts/system-prompt";
 
-const mbtiProfileSchema = z.object({
+export const mbtiProfileSchema = z.object({
   type: z.enum(MBTI_TYPES),
   overview: z.string().min(20).max(180),
   strengths: z.string().min(20).max(180),
@@ -41,13 +41,13 @@ type AttemptFailure = {
   readonly errors: readonly string[];
 };
 
-async function oneAttempt(args: {
+export async function oneAttempt(args: {
   messages: readonly ChatMessage[];
   apiKey: string;
   signal: AbortSignal;
   emit: (event: ReadingEmit) => void;
   fetchImpl: typeof fetch;
-  onUsage: (usage: UsageNote) => void;
+  onUsage: (usage: UsageNote) => void | Promise<void>;
 }): Promise<{ readonly ok: true; readonly content: string } | { readonly ok: false; readonly failure: AttemptFailure }> {
   const started = Date.now();
   let usage: UsageNote = { modelMs: 0, promptTokens: null, completionTokens: null, cacheHitTokens: null, cacheMissTokens: null };
@@ -100,7 +100,7 @@ async function oneAttempt(args: {
         }
       }
       if (item.finishReason) finishReason = item.finishReason;
-      if (item.usage) usage = { modelMs: Date.now() - started, ...item.usage };
+      if (item.usage) { usage = { modelMs: Date.now() - started, ...item.usage }; await args.onUsage(usage); }
     }
   } catch (error) {
     if (args.signal.aborted) return { ok: false, failure: { retryable: false, code: "CANCELLED", message: "解读已取消", errors: [] } };
@@ -113,7 +113,7 @@ async function oneAttempt(args: {
   }
   return { ok: true, content };
   } finally {
-    args.onUsage({ ...usage, modelMs: Date.now() - started });
+    await args.onUsage({ ...usage, modelMs: Date.now() - started });
   }
 }
 
