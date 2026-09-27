@@ -6,7 +6,24 @@ import { zodiacProfile } from "@/lib/shared/zodiac-reading";
 import { HttpError } from "@/lib/server/errors";
 
 const IMAGE_URL = "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
+export const PERSONA_IMAGE_MODEL = "qwen-image-3.0-pro";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+async function imageFetch(url: string | URL, init: RequestInit, stage: "generate" | "download", fetchImpl: typeof fetch): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchImpl(url, init);
+    } catch (error) {
+      if (init.signal?.aborted) throw init.signal.reason;
+      const cause = error instanceof Error ? error.cause as { code?: string } | undefined : undefined;
+      const code = typeof cause?.code === "string" ? cause.code.slice(0, 64) : "NETWORK_ERROR";
+      console.error(JSON.stringify({ phase: `portrait-${stage}`, model: PERSONA_IMAGE_MODEL, attempt: attempt + 1, errorCode: code }));
+      // Retry POST only when the connection was never established, avoiding duplicate paid generations.
+      if (attempt === 0 && (stage === "download" || ["EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"].includes(code))) continue;
+      throw new HttpError(502, stage === "generate" ? "IMAGE_CONNECTION_FAILED" : "IMAGE_DOWNLOAD_FAILED", stage === "generate" ? "绘画服务连接失败，请稍后重试。" : "人物画已生成，但下载失败，请稍后重试。", true);
+    }
+  }
+}
 
 const FACE_VARIATIONS = [
   ["偏长鹅蛋脸，下颌线柔和", "清秀椭圆脸，下巴略圆", "脸颊略饱满，颧骨柔和", "窄长脸，颧骨与下颌转折清晰", "略方的鹅蛋脸，轮廓舒展"],
@@ -50,20 +67,20 @@ export function personaImagePrompt(dayMaster: DayMaster, gender: "male" | "femal
 }
 
 export async function generatePersonaImage(dayMaster: DayMaster, gender: "male" | "female", signId: SignId | null, apiKey: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<string> {
-  const response = await fetchImpl(IMAGE_URL, {
+  const response = await imageFetch(IMAGE_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "wan2.7-image-pro", input: { messages: [{ role: "user", content: [{ text: personaImagePrompt(dayMaster, gender, signId) }] }] }, parameters: { size: "1024*1536", n: 1, watermark: false } }),
+    body: JSON.stringify({ model: PERSONA_IMAGE_MODEL, input: { messages: [{ role: "user", content: [{ text: personaImagePrompt(dayMaster, gender, signId) }] }] }, parameters: { size: "1024*1536", n: 1, watermark: false } }),
     signal,
     cache: "no-store",
-  });
+  }, "generate", fetchImpl);
   if (!response.ok) throw new HttpError(response.status === 429 ? 503 : 502, response.status === 429 ? "IMAGE_BUSY" : "IMAGE_MODEL_FAILED", response.status === 429 ? "绘画服务正忙，请稍后重试。" : "绘画服务暂时没有完成，请稍后重试。", true);
   const payload = await response.json() as { output?: { choices?: { message?: { content?: { image?: string }[] } }[] } };
   const imageUrl = payload.output?.choices?.[0]?.message?.content?.find((item) => item.image)?.image;
   if (!imageUrl) throw new Error("IMAGE_MISSING");
   const url = new URL(imageUrl);
   if (url.protocol !== "https:" || !url.hostname.endsWith(".aliyuncs.com")) throw new Error("IMAGE_HOST_INVALID");
-  const image = await fetchImpl(url, { signal, redirect: "error", cache: "no-store" });
+  const image = await imageFetch(url, { signal, redirect: "error", cache: "no-store" }, "download", fetchImpl);
   const mime = image.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
   if (!image.ok || !["image/png", "image/jpeg", "image/webp"].includes(mime)) throw new Error("IMAGE_DOWNLOAD_FAILED");
   if (Number(image.headers.get("content-length") ?? 0) > MAX_IMAGE_BYTES) throw new Error("IMAGE_TOO_LARGE");
