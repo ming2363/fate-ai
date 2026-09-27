@@ -22,15 +22,21 @@ export function parseUpstreamPayload(payload: unknown): UpstreamDelta | null {
   const choice = first && typeof first === "object" ? first as Record<string, unknown> : null;
   const delta = choice?.delta && typeof choice.delta === "object" ? choice.delta as ChoiceDelta : null;
   const usageRecord = record.usage && typeof record.usage === "object" ? record.usage as Record<string, unknown> : null;
+  const promptDetails = usageRecord?.prompt_tokens_details as { cached_tokens?: unknown } | undefined;
+  const promptTokens = typeof usageRecord?.prompt_tokens === "number" ? usageRecord.prompt_tokens : null;
+  const cacheHitTokens = typeof usageRecord?.prompt_cache_hit_tokens === "number" ? usageRecord.prompt_cache_hit_tokens
+    : typeof promptDetails?.cached_tokens === "number" ? promptDetails.cached_tokens : null;
+  const cacheMissTokens = typeof usageRecord?.prompt_cache_miss_tokens === "number" ? usageRecord.prompt_cache_miss_tokens
+    : promptTokens !== null && cacheHitTokens !== null && cacheHitTokens >= 0 && cacheHitTokens <= promptTokens ? promptTokens - cacheHitTokens : null;
   return {
     reasoning: textField(delta?.reasoning_content),
     content: textField(delta?.content),
     finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
     usage: usageRecord ? {
-      promptTokens: typeof usageRecord.prompt_tokens === "number" ? usageRecord.prompt_tokens : null,
+      promptTokens,
       completionTokens: typeof usageRecord.completion_tokens === "number" ? usageRecord.completion_tokens : null,
-      cacheHitTokens: typeof usageRecord.prompt_cache_hit_tokens === "number" ? usageRecord.prompt_cache_hit_tokens : null,
-      cacheMissTokens: typeof usageRecord.prompt_cache_miss_tokens === "number" ? usageRecord.prompt_cache_miss_tokens : null,
+      cacheHitTokens,
+      cacheMissTokens,
     } : null,
   };
 }

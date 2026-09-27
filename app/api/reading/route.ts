@@ -6,7 +6,7 @@ import { readingRequestSchema } from "@/lib/shared/schemas";
 import { encodeSse } from "@/lib/shared/sse";
 import { AS_OF_MAX_SKEW_MS, READING_TIMEOUT_MS } from "@/lib/shared/versions";
 import { buildChart } from "@/lib/server/chart";
-import { readServerApiKey } from "@/lib/server/deepseek";
+import { readServerApiKey, DEEPSEEK_MODEL } from "@/lib/server/deepseek";
 import { HttpError } from "@/lib/server/errors";
 import { requestBodyFingerprint } from "@/lib/server/fingerprint";
 import { assertSameOrigin, beginInflight, clientAddress, consumeRateLimit, endInflight, readOrCreateSession } from "@/lib/server/guard";
@@ -197,7 +197,7 @@ export async function POST(request: Request): Promise<Response> {
           await Promise.all(modelCalls.map(({ usage, taskId, attempt: modelAttempt, at }) => tryStore(() => logOperation({
             request, sessionId: session.id, historyId: body.historyId, requestId: body.requestId,
             event: "model_call", outcome: usage.promptTokens === null ? "unreported" : "reported",
-            taskId, attempt: modelAttempt, model: "deepseek-flash", usage, usageAt: at, durationMs: usage.modelMs,
+            taskId, attempt: modelAttempt, model: DEEPSEEK_MODEL, usage, usageAt: at, durationMs: usage.modelMs,
           }))));
           clearInterval(heartbeat);
           request.signal.removeEventListener("abort", onAbort);

@@ -1,4 +1,5 @@
-export const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+export const DEEPSEEK_URL = "https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions";
+export const DEEPSEEK_MODEL = "deepseek-v4.1-flash";
 
 export type ChatMessage = {
   readonly role: "system" | "user";
@@ -6,8 +7,8 @@ export type ChatMessage = {
 };
 
 export function deepseekRequestBody(messages: readonly ChatMessage[]): {
-  readonly model: "deepseek-flash";
-  readonly thinking: { readonly type: "enabled" };
+  readonly model: typeof DEEPSEEK_MODEL;
+  readonly enable_thinking: true;
   readonly reasoning_effort: "max";
   readonly response_format: { readonly type: "json_object" };
   readonly max_tokens: 131072;
@@ -16,8 +17,8 @@ export function deepseekRequestBody(messages: readonly ChatMessage[]): {
   readonly messages: readonly ChatMessage[];
 } {
   return {
-    model: "deepseek-flash",
-    thinking: { type: "enabled" },
+    model: DEEPSEEK_MODEL,
+    enable_thinking: true,
     reasoning_effort: "max",
     response_format: { type: "json_object" },
     max_tokens: 131072,
@@ -27,16 +28,7 @@ export function deepseekRequestBody(messages: readonly ChatMessage[]): {
   };
 }
 
-export function officialChatUrl(): string {
-  const configured = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
-  const url = new URL(configured);
-  if (url.protocol !== "https:" || url.hostname !== "api.deepseek.com") {
-    throw new Error("只允许 DeepSeek 官方地址");
-  }
-  return DEEPSEEK_URL;
-}
-
 export function readServerApiKey(): string | null {
-  const key = process.env.DEEPSEEK_API_KEY?.trim();
+  const key = process.env.MAAS_IMAGE_API_KEY?.trim();
   return key ? key : null;
 }

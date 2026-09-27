@@ -4,7 +4,7 @@ import { z } from "zod";
 import { MBTI_TYPES, type MbtiProfile, type MbtiType } from "@/lib/shared/mbti";
 import { CONTENT_BYTE_LIMIT } from "@/lib/shared/versions";
 
-import { deepseekRequestBody, officialChatUrl, type ChatMessage } from "@/lib/server/deepseek";
+import { deepseekRequestBody, DEEPSEEK_URL, type ChatMessage } from "@/lib/server/deepseek";
 import { buildReadingContext, buildTaskContext } from "@/lib/server/reading-context";
 import { validateReading, validateTaskReading } from "@/lib/server/reading-validate";
 import { readUpstreamSse } from "@/lib/server/upstream";
@@ -55,13 +55,14 @@ async function oneAttempt(args: {
   args.emit({ event: "status", phase: "waiting" });
   let response: Response;
   try {
-    response = await args.fetchImpl(officialChatUrl(), {
+    response = await args.fetchImpl(DEEPSEEK_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${args.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(deepseekRequestBody(args.messages)),
+      redirect: "error",
       signal: args.signal,
     });
   } catch (error) {

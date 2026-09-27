@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { deepseekRequestBody } from "@/lib/server/deepseek";
+import { deepseekRequestBody, readServerApiKey } from "@/lib/server/deepseek";
 import { beginInflight, endInflight, resetGuards } from "@/lib/server/guard";
 import { HttpError } from "@/lib/server/errors";
 import { validateReading } from "@/lib/server/reading-validate";
@@ -22,15 +22,26 @@ function walk(dir: string): string[] {
 }
 
 describe("解读校验与流", () => {
+  it("文字解读使用现有千问 Key，缺失时不回退到其他平台 Key", () => {
+    try {
+      vi.stubEnv("MAAS_IMAGE_API_KEY", " shared-test-key ");
+      vi.stubEnv("DEEPSEEK_API_KEY", "old-test-key");
+      expect(readServerApiKey()).toBe("shared-test-key");
+      vi.stubEnv("MAAS_IMAGE_API_KEY", "");
+      expect(readServerApiKey()).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("生产代码不调用固定月日星座函数", () => {
     const hits = walk("lib").concat(walk("app"), walk("components")).filter((file) => /getXingZuo|getXingzuo/.test(readFileSync(file, "utf8")));
     expect(hits).toEqual([]);
   });
 
-  it("请求体固定官方最高思考档位", () => {
+  it("请求体使用千问 DeepSeek 最高思考档位", () => {
     const body = deepseekRequestBody([{ role: "user", content: "{}" }]);
-    expect(body.model).toBe("deepseek-flash");
-    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.model).toBe("deepseek-v4.1-flash");
+    expect(body.enable_thinking).toBe(true);
     expect(body.reasoning_effort).toBe("max");
     expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.max_tokens).toBe(131072);

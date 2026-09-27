@@ -1,6 +1,6 @@
 # 知命
 
-简体中文、手机优先、免登录的八字解读单页。程序先排盘，DeepSeek 官方 `deepseek-flash` 只负责白话解读。
+简体中文、手机优先、免登录的八字解读单页。程序先排盘，千问平台的 `deepseek-v4.1-flash` 只负责白话解读。
 
 ## 启动
 
@@ -16,7 +16,7 @@ pnpm build
 pnpm start
 ```
 
-密钥只放在项目根目录 `.env.local`，权限建议 `0600`。服务端读取 `DEEPSEEK_API_KEY`，不要使用 `NEXT_PUBLIC_` 前缀，也不要提交密钥。变量名见 `.env.example`。
+密钥只放在项目根目录 `.env.local`，权限建议 `0600`。文字解读与生图统一读取 `MAAS_IMAGE_API_KEY`，不要使用 `NEXT_PUBLIC_` 前缀，也不要提交密钥。变量名见 `.env.example`。
 
 没有密钥时，`/api/chart` 仍可排盘；`/api/reading` 返回 `AI_NOT_CONFIGURED`，页面保留基础卡并提示“AI 解读尚未配置”。
 
@@ -60,7 +60,8 @@ pnpm typecheck
 
 ## 未完成或未在本环境验证
 
-- 没有发起真实 DeepSeek 付费调用。请求体、思考档位和失败分支由模拟流锁定。
+- 请求体、最高思考档位、流式解析和失败分支有自动化测试；千问接口已验证思考流、JSON 正文及 Token 用量。
+- 文字接口固定为 `https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions`，开启 `enable_thinking`，`reasoning_effort=max`。费用按千问公开峰谷价估算，实际扣费以平台账单为准。
 - 没有在真实浏览器和反向代理上验证思考片段的实时送达。
 - 独立分钟级节气样本目前是香港天文台 2025、2026 年中气，不是多个历史年代。更早的只有日期、没有时刻的表没有拿来声称分钟精度。
 - 八字四柱没有第二套独立历法源的分钟级对照，只验证了锁定引擎和流派规则。

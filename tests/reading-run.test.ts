@@ -32,8 +32,10 @@ describe("模型流控制", () => {
       onUsage: () => { measuredCalls += 1; },
       fetchImpl: async (_url, init) => {
         calls += 1;
+        expect(_url).toBe("https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions");
+        expect(init?.redirect).toBe("error");
         const body = JSON.parse(String(init?.body));
-        expect(body.model).toBe("deepseek-flash");
+        expect(body.model).toBe("deepseek-v4.1-flash");
         expect(body.reasoning_effort).toBe("max");
         expect(init?.headers).toMatchObject({ Authorization: "Bearer test-key" });
         return sse('data: {"choices":[{"delta":{"content":"{\\"truncated\\":true}"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n');
