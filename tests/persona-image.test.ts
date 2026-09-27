@@ -1,8 +1,55 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { randomInt } from "node:crypto";
 
 import { generatePersonaImage, personaImagePrompt } from "@/lib/server/persona-image";
+import { DAY_MASTERS, PERSONA_BY_GAN } from "@/lib/shared/persona";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  return { ...actual, randomInt: vi.fn(actual.randomInt) };
+});
 
 describe("国风人物画", () => {
+  it("同一输入重新抽取相貌和发型，保持人格内容不变", () => {
+    const random = vi.mocked(randomInt);
+    const original = random.getMockImplementation()!;
+    try {
+      random.mockImplementation(() => 0);
+      const first = personaImagePrompt("辛", "female", "sagittarius");
+      random.mockImplementation(() => 1);
+      const second = personaImagePrompt("辛", "female", "sagittarius");
+      expect(first).not.toBe(second);
+      expect(first).toContain("偏长鹅蛋脸");
+      expect(second).toContain("清秀椭圆脸");
+      expect(first).toContain("蓬松挽髻");
+      expect(second).toContain("半挽半披");
+      for (const prompt of [first, second]) {
+        expect(prompt).toContain("珠玉含光");
+        expect(prompt).toContain("珍珠白、香槟金");
+        expect(prompt).toContain("射手座");
+      }
+    } finally {
+      random.mockImplementation(original);
+    }
+  });
+  it("十种人格保留各自意象与配色，男女都保持成年青年形象", () => {
+    const directions = new Set<string>();
+    for (const gan of DAY_MASTERS) {
+      for (const gender of ["male", "female"] as const) {
+        const prompt = personaImagePrompt(gan, gender, null);
+        expect(prompt).toContain(PERSONA_BY_GAN[gan].title);
+        expect(prompt).toContain(PERSONA_BY_GAN[gan].image);
+        expect(prompt).toContain(PERSONA_BY_GAN[gan].keywords.join("、"));
+        expect(prompt).toContain("约20岁、明确已成年");
+        expect(prompt).toContain(gender === "male" ? "年轻男子" : "年轻女子");
+        expect(prompt).not.toMatch(/undefined|null|星座仅作/);
+        directions.add(prompt.match(/美术方向：([^。]+)/)![1]!);
+      }
+    }
+    expect(directions.size).toBe(10);
+    expect(personaImagePrompt("甲", "female", null)).toContain("松青、玉白");
+    expect(personaImagePrompt("辛", "female", null)).toContain("珍珠白、香槟金");
+  });
   it("按命盘意象与已核定星座生成提示，下载图片前限制来源", async () => {
     const prompt = personaImagePrompt("戊", "male", "sagittarius");
     expect(prompt).toContain("山岳");

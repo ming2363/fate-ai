@@ -9,6 +9,7 @@ out
 dist
 coverage
 *.tsbuildinfo
+data/ip-region/*.xdb
 .DS_Store
 .agents/
 .omo/

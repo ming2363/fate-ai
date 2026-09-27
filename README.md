@@ -22,7 +22,16 @@ pnpm start
 
 ## 历史记录与操作日志
 
-设置 `.env.local` 中的 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE`，再在目标库执行 `db/schema.sql`。系统只写入 `fate_reading_history` 和 `fate_operation_log` 两张表：排盘后创建匿名历史，文字解读与人物画完成后补全；访问、排盘、解读、出图和保存卡片写操作日志。历史记录目前没有页面或读取接口。部署在可信反向代理后设置 `TRUST_PROXY_HEADERS=true`，日志才会采用代理传入的真实访问 IP。数据库写入失败会记录服务端错误，不中断用户解读。
+设置 `.env.local` 中的 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE`，再在目标库执行 `db/schema.sql`。系统只写入 `fate_reading_history` 和 `fate_operation_log` 两张表：排盘后创建匿名历史，文字解读与人物画完成后补全；访问、排盘、解读、出图和保存卡片写操作日志。历史记录不在用户页面展示。部署在可信反向代理后设置 `TRUST_PROXY_HEADERS=true`，日志才会采用代理传入的真实访问 IP。数据库写入失败会记录服务端错误，不中断用户解读。
+
+管理员只读接口统一要求 `Authorization: Bearer <ADMIN_API_TOKEN>`，在服务端配置至少 32 位随机凭证，不放在 URL 或前端。未配置时接口关闭，响应禁止缓存：
+
+- `GET /api/admin/stats`：全部历史条数、访问埋点数、解读调用次数、操作日志数及各地区分布。地区按日志 IP 查询，未知 IP 不用出生地补全；历史按第一条关联日志归属，重试不会增加历史条数。访问次数不是访问人数。
+- `GET /api/admin/stats?date=2026-09-26`：北京时间该日零点至次日零点（不含）的新增历史和操作事件。生产 MySQL 的 DATETIME 写入时区为北京时间；历史状态是查询时的最新状态，不代表完成发生在当天。
+- `GET /api/admin/history?limit=20&offset=0`：历史列表，最多 100 条，使用 `nextOffset` 翻页。
+- `GET /api/admin/history?id=<UUID>`：该次输入、排盘、完整文字解读和图片是否存在，不返回图片二进制。
+
+部署在 `/fate` 时为 `/fate/api/admin/...`。地区库安装见 [data/ip-region/README.md](data/ip-region/README.md)。公网暂为 HTTP 时，请通过 SSH 隧道或服务器本机调用管理接口，避免明文传输凭证和出生信息。
 
 ## 验证
 
