@@ -53,9 +53,12 @@ async function textCall(job: Claimed, messages: ChatMessage[], signal: AbortSign
   const key = readServerApiKey();
   if (!key) fail("MODEL_CONFIG", "解读服务尚未配置。", 503);
   const ticket = await startCall(job.row.id, job.key, job.version, "text", Buffer.byteLength(JSON.stringify(deepseekRequestBody(messages))));
-  const result = await oneAttempt({ messages, apiKey: key, signal, fetchImpl: fetch, emit: () => {}, onUsage: (usage) => finishCall(ticket, usage) });
-  if (!result.ok) fail(result.failure.code, result.failure.message, 502);
-  try { return JSON.parse(result.content) as unknown; } catch { fail("INVALID_JSON", "解读格式未通过检查，可单独重试。", 502); }
+  let accounted = false;
+  try {
+    const result = await oneAttempt({ messages, apiKey: key, signal, fetchImpl: fetch, emit: () => {}, onUsage: async (usage) => { await finishCall(ticket, usage); accounted = true; } });
+    if (!result.ok) fail(result.failure.code, result.failure.message, 502);
+    try { return JSON.parse(result.content) as unknown; } catch { fail("INVALID_JSON", "解读格式未通过检查，可单独重试。", 502); }
+  } finally { if (!accounted) await finishCall(ticket); }
 }
 async function profile(job: Claimed, signal: AbortSignal): Promise<MbtiProfile> {
   const type = job.row.input_json.mbti!;

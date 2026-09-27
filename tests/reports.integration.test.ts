@@ -119,3 +119,20 @@ it.skipIf(!enabled)("MBTI concurrent requests share one paid call and persist on
   expect(saved).not.toContain("缓存测试");
   expect(saved).not.toContain("1999");
 }, 20000);
+
+it.skipIf(!enabled)("failed upstream releases concurrency while retaining unknown cost reservation", async () => {
+  const sid = randomUUID().replaceAll("-", "");
+  const id = await createReport({ ...input, requestId: randomUUID() }, sid, "127.0.0.11");
+  const job = await transaction(async (c) => {
+    const row = await lockedReport(c, id); row.task_state.tasks.identity!.status = "running";
+    await writeReport(c, row); return { row, key: "identity", version: 1 };
+  });
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("upstream unavailable"); }));
+  await executeReportTask(job, new AbortController());
+  const [calls] = await database().query<RowDataPacket[]>("SELECT outcome,estimated_cost_cny,metadata_json FROM fate_operation_log WHERE history_id=? AND call_id IS NOT NULL", [id]);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.outcome).toBe("unknown");
+  expect(calls[0]?.estimated_cost_cny).toBeNull();
+  expect(Number(calls[0]?.metadata_json.reservedCny)).toBeGreaterThan(0);
+  expect((await snapshot(id, sid)).tasks.identity?.status).toBe("failed");
+}, 20000);
