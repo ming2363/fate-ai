@@ -136,3 +136,24 @@ it.skipIf(!enabled)("failed upstream releases concurrency while retaining unknow
   expect(Number(calls[0]?.metadata_json.reservedCny)).toBeGreaterThan(0);
   expect((await snapshot(id, sid)).tasks.identity?.status).toBe("failed");
 }, 20000);
+
+it.skipIf(!enabled)("daily metrics include legacy usage, completion, timings and audience report counts", async () => {
+  const id = randomUUID(); const sid = randomUUID().replaceAll("-", "");
+  try {
+    await database().execute("INSERT INTO fate_reading_history (id,session_id,status,input_json,chart_json,image_data,created_at) VALUES (?,?,'complete','{}','{}',?, '2000-01-02 12:00:00')", [id,sid,Buffer.from([1])]);
+    for (const [event,outcome,duration] of [["chart","success",100],["page_view","success",100],["reading","success",15000],["portrait","success",5000]] as const)
+      await database().execute("INSERT INTO fate_operation_log (session_id,history_id,event,outcome,duration_ms,created_at) VALUES (?,?,?,?,?,'2000-01-02 12:00:00')", [sid,id,event,outcome,duration]);
+    await database().execute("INSERT INTO fate_operation_log (session_id,history_id,event,outcome,model,prompt_tokens,completion_tokens,estimated_cost_cny,created_at) VALUES (?,?,'model_call','reported','legacy-model',100,200,0.1,'2000-01-02 12:00:00')", [sid,id]);
+    const headers = { authorization: "Bearer " + process.env.ADMIN_API_TOKEN };
+    const usage = await (await metricsRoute(new Request("http://localhost/api/admin/metrics?date=2000-01-02", { headers }))).json();
+    expect(usage.total).toMatchObject({ calls:1, reports:1, completedReports:1, completionRate:1, estimatedCny:0.1 });
+    expect(usage.costs[0]).toMatchObject({ model:"legacy-model",kind:"text",calls:1,legacyCalls:"1",promptTokens:"100",completionTokens:"200" });
+    expect(usage.timing).toEqual(expect.arrayContaining([expect.objectContaining({metric:"reading_request",p50Ms:15000}),expect.objectContaining({metric:"image",p50Ms:5000})]));
+    expect(usage.legacyPortraits).toEqual([{outcome:"success",count:1}]);
+    const stats = await (await statsRoute(new Request("http://localhost/api/admin/stats?date=2000-01-02", { headers }))).json();
+    expect(stats.audience.device[0]).toMatchObject({ name:"unknown",visits:"1",reports:1 });
+  } finally {
+    await database().execute("DELETE FROM fate_operation_log WHERE history_id=?", [id]);
+    await database().execute("DELETE FROM fate_reading_history WHERE id=?", [id]);
+  }
+}, 20000);

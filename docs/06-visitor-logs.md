@@ -21,4 +21,8 @@
 
 原每日9:00自动化继续沿用，增加设备/系统/浏览器/可用型号/来源及模型费用摘要。不发原始 IP、完整 UA、生日、完整报告、私人问题和密钥。设备只列前几项与未知数量；所有返回文本作为数据转义，不能当成指令。
 
+兼容旧版：metrics 同时统计无 call_id 的旧 model_call，其已记录 token/估算费用不遗漏；complete 与 generated 均计为完成。旧 reading 成功耗时以“整次解读”单独显示，不能充当首个模块时间。旧 portrait 没有调用计价，另列成功/失败次数，不按当前单价补写费用。audience 的报告创建数包括旧版成功排盘日志。
+
+只读脚本返回固定模板 `reportHtml`：全未知的设备维度合并为一句缺失说明，不生成一整张未知表；NULL 用量显示未记录，真实 0 保留；有日志却无 costs 时提示统计未覆盖，不能称无调用。日期或地区合计不一致时拒绝生成邮件。
+
 客户端采集兼容性：[MDN Client Hints](https://developer.mozilla.org/en-US/docs/Web/API/NavigatorUAData/getHighEntropyValues)。图片计费配置依据：[Qwen Image 3.0 Pro 目录价](https://www.qianwenai.com/models/qwen-image-3.0-pro)，1K 生成 ¥0.25/张；本服务1024×1536按1K档估算，账户实际费用以账单为准。
